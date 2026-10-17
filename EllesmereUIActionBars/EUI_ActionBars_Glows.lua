@@ -722,7 +722,7 @@ do
             if hf and hf:IsShown() then ns._AssistRingHide(btn) end
 
             local bf = btn.AssistedCombatHighlightFrame
-            if bf and bf:GetAlpha() ~= 0 then bf:SetAlpha(0) end
+            if bf then bf:SetAlpha(0) end
 
             local cr, cg, cb = ns._AssistCustomGlowColor()
             local bW, bH = btn:GetWidth() or 45, btn:GetHeight() or 45
@@ -753,7 +753,7 @@ do
             fd.assistCustomW, fd.assistCustomH = nil, nil
             fd.assistCustomR, fd.assistCustomG, fd.assistCustomB = nil, nil, nil
             local bf = btn.AssistedCombatHighlightFrame
-            if bf and bf:GetAlpha() ~= 1 then bf:SetAlpha(1) end
+            if bf then bf:SetAlpha(1) end
         end
 
         local style = (p and p.assistGlowStyle) or 1
@@ -762,7 +762,7 @@ do
         if style == 0 then
             ns._AssistOverlay(btn)
             local bf = btn.AssistedCombatHighlightFrame
-            if bf and bf:GetAlpha() ~= 1 then bf:SetAlpha(1) end
+            if bf then bf:SetAlpha(1) end
             if bf and bf:IsShown() then
                 ns._AssistRingHide(btn)
                 ns._AssistFit(btn, bf, false)
