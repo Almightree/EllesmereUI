@@ -4,9 +4,10 @@
 ## Group: EllesmereUI
 ## Notes: A clean, updated reskin of Blizzard's Quest Tracker.
 ## Author: Ellesmere
-## Version: 9.5.4
+## Version: 9.5.5
 ## Dependencies: EllesmereUI
 ## SavedVariables: EllesmereUIQuestTrackerDB
+## SavedVariablesPerCharacter: EllesmereUIQuestTrackerCharDB
 ## IconTexture: Interface\AddOns\EllesmereUI\media\eg-logo.tga
 
 # Loader

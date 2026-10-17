@@ -835,15 +835,22 @@ do
     -- AssistedCombatManager:GetActionButtonSpellForAssistedHighlight.
     -- Attribute first: secure paging writes "action", the authoritative slot
     -- (see ForceCooldownPaint); btn.action is a derived mirror.
+    local function AssistPublicSpellID(value)
+        if issecretvalue and issecretvalue(value) then return nil end
+        if type(value) ~= "number" or value <= 0 then return nil end
+        return value
+    end
+
     local function ButtonSpell(btn)
-        local action = btn.GetAttribute and btn:GetAttribute("action")
-        if action == nil then action = btn.action end
-        if action == nil then return nil end
+        local action = AssistPublicSpellID(btn.GetAttribute and btn:GetAttribute("action"))
+        if not action then action = AssistPublicSpellID(btn.action) end
+        if not action then return nil end
         local atype, id, subType = GetActionInfo(action)
+        if issecretvalue and (issecretvalue(atype) or issecretvalue(subType)) then return nil end
         if atype == "spell" and subType ~= "assistedcombat" then
-            return id
+            return AssistPublicSpellID(id)
         elseif atype == "macro" and subType == "spell" then
-            return id
+            return AssistPublicSpellID(id)
         end
         return nil
     end
@@ -858,13 +865,15 @@ do
         end
         local suggested = C_AssistedCombat and C_AssistedCombat.GetNextCastSpell
             and C_AssistedCombat.GetNextCastSpell()
+        suggested = AssistPublicSpellID(suggested)
         local newSet = {}
         if suggested then
             -- Match base ids in both directions (button or suggestion may hold
             -- either the base or an override), same as the CDM side. sid > 0
             -- guards item/macro pseudo-ids out of GetBaseSpell.
             local GetBaseSpell = C_Spell and C_Spell.GetBaseSpell
-            local suggestedBase = (GetBaseSpell and GetBaseSpell(suggested)) or suggested
+            local suggestedBase = suggested
+            if GetBaseSpell then suggestedBase = AssistPublicSpellID(GetBaseSpell(suggested)) or suggested end
             for _, info in ipairs(BAR_CONFIG) do
                 if not info.isStance and not info.isPetBar then
                     local buttons = barButtons[info.key]
@@ -876,7 +885,7 @@ do
                                 if sid then
                                     local match = (sid == suggested) or (sid == suggestedBase)
                                     if not match and GetBaseSpell and sid > 0 then
-                                        match = GetBaseSpell(sid) == suggestedBase
+                                        match = AssistPublicSpellID(GetBaseSpell(sid)) == suggestedBase
                                     end
                                     if match then
                                         -- AssistShow owns the style decision and
