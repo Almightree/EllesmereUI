@@ -626,6 +626,7 @@ do
             fd.assistCustomActive = nil
             fd.assistCustomType = nil
             fd.assistCustomMask = nil
+            fd.assistCustomShapeMask = nil
             fd.assistCustomW, fd.assistCustomH = nil, nil
             fd.assistCustomR, fd.assistCustomG, fd.assistCustomB = nil, nil, nil
         end
@@ -715,7 +716,12 @@ do
             customType = 0
         end
 
-        if customType > 0 then
+        if customType > 0 and _assistInCombat then
+            if fd.shapeMask and fd.shapeApplied then
+                for si, entry in ipairs(LOOP_GLOW_TYPES) do
+                    if entry.shapeGlow then customType = si; break end
+                end
+            end
             local ov = fd.assistOverlay
             if ov and ov:IsShown() then ns._AssistOverlay(btn) end
             local hf = fd.assistHL
@@ -730,6 +736,7 @@ do
                and fd.assistCustomType == customType
                and fd.assistCustomW == bW and fd.assistCustomH == bH
                and fd.assistCustomMask == fd.shapeMaskPath
+               and fd.assistCustomShapeMask == fd.shapeMask
                and fd.assistCustomR == cr and fd.assistCustomG == cg and fd.assistCustomB == cb
                and fd.assistGlowWrapper and fd.assistGlowWrapper:IsShown() then
                 return
@@ -740,6 +747,7 @@ do
                 fd.assistCustomType = customType
                 fd.assistCustomW, fd.assistCustomH = bW, bH
                 fd.assistCustomMask = fd.shapeMaskPath
+                fd.assistCustomShapeMask = fd.shapeMask
                 fd.assistCustomR, fd.assistCustomG, fd.assistCustomB = cr, cg, cb
             end
             return
@@ -750,6 +758,7 @@ do
             fd.assistCustomActive = nil
             fd.assistCustomType = nil
             fd.assistCustomMask = nil
+            fd.assistCustomShapeMask = nil
             fd.assistCustomW, fd.assistCustomH = nil, nil
             fd.assistCustomR, fd.assistCustomG, fd.assistCustomB = nil, nil, nil
             local bf = btn.AssistedCombatHighlightFrame
@@ -757,38 +766,8 @@ do
         end
 
         local style = (p and p.assistGlowStyle) or 1
-
-        -- Explicit stock-sized Blizzard path.
-        if style == 0 then
-            ns._AssistOverlay(btn)
-            local bf = btn.AssistedCombatHighlightFrame
-            if bf then bf:SetAlpha(1) end
-            if bf and bf:IsShown() then
-                ns._AssistRingHide(btn)
-                ns._AssistFit(btn, bf, false)
-                if bf:GetScale() ~= 1 then bf:SetScale(1) end
-                return
-            end
-
-            local hf = fd.assistHL
-            if not hf then
-                hf = AssistCreate(btn)
-                if not hf then return end
-                fd.assistHL = hf
-            end
-            ns._AssistFit(btn, hf, false)
-            if hf:GetScale() ~= 1 then hf:SetScale(1) end
-            hf:SetFrameLevel(btn:GetFrameLevel() + 15)
-            hf:Show()
-            if hf.Flipbook and hf.Flipbook.Anim then
-                if _assistInCombat then
-                    if not hf.Flipbook.Anim:IsPlaying() then hf.Flipbook.Anim:Play() end
-                elseif hf.Flipbook.Anim:IsPlaying() then
-                    hf.Flipbook.Anim:Stop()
-                end
-            end
-            return
-        end
+        -- Custom styles use the frozen native ring outside combat.
+        if customType > 0 or style == 0 then style = 1 end
 
         ns._AssistOverlay(btn, style)
 
@@ -930,11 +909,14 @@ do
     ns.QueueAssistRescan = QueueAssistRescan
 
     local function SyncAssistCombat()
-        _assistInCombat = (InCombatLockdown() or UnitAffectingCombat("player")) and true or false
+        local inCombat = (InCombatLockdown() or UnitAffectingCombat("player")) and true or false
+        local changed = _assistInCombat ~= inCombat
+        _assistInCombat = inCombat
         -- Exposed for the per-button rotation hook (different scope), which
         -- re-freezes Blizzard's swirl after its UpdateState calls.
         ns._assistCombatState = _assistInCombat
         for btn in pairs(_assistGlowed) do
+            if changed then AssistShow(btn) end
             local hf = EFD(btn).assistHL
             if hf and hf:IsShown() and hf.Flipbook and hf.Flipbook.Anim then
                 if _assistInCombat then

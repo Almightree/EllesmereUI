@@ -270,7 +270,7 @@ local function InitAnimationsPage(PP, EAB, PAGE_ANIMATIONS)
         if not f then return end
         local p = EAB.db and EAB.db.profile or {}
         local customType = p.assistGlowType or 0
-        local style = p.assistGlowStyle or 1
+        local style = (p.assistGlowStyle == 0 and 1) or p.assistGlowStyle or 1
         local G = EllesmereUI.Glows
 
         if not f._assistOverlay then
@@ -325,7 +325,7 @@ local function InitAnimationsPage(PP, EAB, PAGE_ANIMATIONS)
         f:SetAlpha(1)
 
         -- Simple local representation for the legacy Blizzard/EUI ring modes.
-        if style == 0 or style == 1 or style == 3 then
+        if style == 1 or style == 3 then
             ring[1]:ClearAllPoints(); ring[1]:SetPoint("TOPLEFT", f); ring[1]:SetPoint("TOPRIGHT", f); ring[1]:SetHeight(2)
             ring[2]:ClearAllPoints(); ring[2]:SetPoint("BOTTOMLEFT", f); ring[2]:SetPoint("BOTTOMRIGHT", f); ring[2]:SetHeight(2)
             ring[3]:ClearAllPoints(); ring[3]:SetPoint("TOPLEFT", ring[1], "BOTTOMLEFT"); ring[3]:SetPoint("BOTTOMLEFT", ring[2], "TOPLEFT"); ring[3]:SetWidth(2)
@@ -615,12 +615,11 @@ local function InitAnimationsPage(PP, EAB, PAGE_ANIMATIONS)
         -- Assisted Highlight: keep the current upstream layout and add the
         -- optional custom glow engines as extra choices.
         local assistValues = {
-            [0] = "Default (Blizzard)",
             [1] = "Glow Ring",
             [2] = "Button Overlay",
             [3] = "Ring + Overlay",
         }
-        local assistOrder = { 0, 1, 2, 3 }
+        local assistOrder = { 1, 2, 3 }
         for i, entry in ipairs(ns.LOOP_GLOW_TYPES or {}) do
             if not entry.shapeGlow then
                 assistValues[100 + i] = entry.name
@@ -629,11 +628,11 @@ local function InitAnimationsPage(PP, EAB, PAGE_ANIMATIONS)
         end
         local function assistCustomSelected() return (p.assistGlowType or 0) > 0 end
         local function RingOff()
-            local style = p.assistGlowStyle or 1
+            local style = (p.assistGlowStyle == 0 and 1) or p.assistGlowStyle or 1
             return AssistOff() or assistCustomSelected() or style == 2
         end
         local function OverlayOff()
-            local style = p.assistGlowStyle or 1
+            local style = (p.assistGlowStyle == 0 and 1) or p.assistGlowStyle or 1
             return AssistOff() or assistCustomSelected() or style == 1
         end
 
@@ -650,7 +649,7 @@ local function InitAnimationsPage(PP, EAB, PAGE_ANIMATIONS)
                   local custom = p.assistGlowType or 0
                   local list = ns.LOOP_GLOW_TYPES or {}
                   if custom > 0 and list[custom] then return 100 + custom end
-                  return p.assistGlowStyle or 1
+                  return (p.assistGlowStyle == 0 and 1) or p.assistGlowStyle or 1
               end,
               setValue=function(v)
                   if v >= 100 then
