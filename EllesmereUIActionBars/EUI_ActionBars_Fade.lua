@@ -71,6 +71,10 @@ function EAB_VTABLE.Hover.AdvancedFadePublicTrue(value)
     return value == true
 end
 
+function EAB_VTABLE.Hover.AdvancedFadeHovered(state)
+    return state and (state.isHovered == true or state.fadeDir == "in") or false
+end
+
 function EAB_VTABLE.Hover.CustomFadeConditionMet(barKey, s)
     if not EAB_VTABLE.Hover.AdvancedFadeEnabled(s) then return false end
     local c = s.fadeConditions
@@ -79,11 +83,7 @@ function EAB_VTABLE.Hover.CustomFadeConditionMet(barKey, s)
     local PublicTrue = EAB_VTABLE.Hover.AdvancedFadePublicTrue
 
     -- OR semantics. Restricted values do not reveal a condition.
-    if c.mouseover and state then
-        local hoverFrame = state.frame
-        if (hoverFrame and hoverFrame.IsMouseOver and PublicTrue(hoverFrame:IsMouseOver()))
-            or PublicTrue(state.isHovered) then return true end
-    end
+    if c.mouseover and EAB_VTABLE.Hover.AdvancedFadeHovered(state) then return true end
     if c.combat then
         if EllesmereUI.IsInCombat and PublicTrue(EllesmereUI.IsInCombat()) then return true end
         if PublicTrue(InCombatLockdown()) then return true end
@@ -150,26 +150,13 @@ function EAB_VTABLE.Hover.RefreshCustomFadeBar(barKey, animate, force)
     else
         visibilityWantsHover = s.mouseoverEnabled
     end
+    local hoverHidden = false
     if visibilityWantsHover then
-        -- Use the frame's real cursor state instead of the hover memo here.  The memo is
-        -- intentionally lazy in stock EUI and can be stale across reload/profile edges;
-        -- Advanced Fade must never use that staleness to defeat Visibility.
-        local over = frame.IsMouseOver and EAB_VTABLE.Hover.AdvancedFadePublicTrue(frame:IsMouseOver()) or false
+        local over = EAB_VTABLE.Hover.AdvancedFadeHovered(state)
         if not over and EAB.db.profile.mouseoverShowAll and ns.AnyMouseoverBarHovered then
-            over = EAB_VTABLE.Hover.AdvancedFadePublicTrue(ns.AnyMouseoverBarHovered())
+            over = ns.AnyMouseoverBarHovered()
         end
-        if not over then
-            if state then state.customFadeTarget = nil end
-            local current = _fadeAlpha[frame] or 1
-            StopFade(frame, current)
-            if animate and abs(current) >= 0.01 then
-                FadeTo(frame, 0, s.mouseoverSpeed or 0.15)
-            else
-                StopFade(frame, 0)
-            end
-            if barKey == "MainBar" then SyncPagingAlpha(0) end
-            return true
-        end
+        hoverHidden = not over
     end
 
     -- Visibility's Mouseover mode parks the user's real Bar Opacity in
@@ -187,15 +174,18 @@ function EAB_VTABLE.Hover.RefreshCustomFadeBar(barKey, animate, force)
         target = s.fadeMaxAlpha
         if target == nil then target = 1 end
     end
+    if hoverHidden then target = 0 end
     if target < 0 then target = 0 elseif target > 1 then target = 1 end
 
     if state and not force and state.customFadeTarget == target then return true end
     if state then state.customFadeTarget = target end
 
     local current = _fadeAlpha[frame] or 1
+    if current == target then return true end
     StopFade(frame, current)
     if animate and enabled and abs(current - target) >= 0.01 then
-        local duration = (target > current) and (s.fadeInSpeed or 0.15) or (s.fadeOutSpeed or 0.15)
+        local duration = hoverHidden and (s.mouseoverSpeed or 0.15)
+            or ((target > current) and (s.fadeInSpeed or 0.15) or (s.fadeOutSpeed or 0.15))
         if duration < 0.01 then duration = 0.01 end
         FadeTo(frame, target, duration)
     else
@@ -257,7 +247,7 @@ function EAB_VTABLE.Hover.ReleaseAdvancedFadeBar(barKey)
     if not frame then return end
 
     local state = hoverStates[barKey]
-    local over = frame.IsMouseOver and EAB_VTABLE.Hover.AdvancedFadePublicTrue(frame:IsMouseOver()) or false
+    local over = EAB_VTABLE.Hover.AdvancedFadeHovered(state)
     if not over and EAB.db.profile.mouseoverShowAll and ns.AnyMouseoverBarHovered then
         over = EAB_VTABLE.Hover.AdvancedFadePublicTrue(ns.AnyMouseoverBarHovered())
     end
@@ -267,7 +257,6 @@ function EAB_VTABLE.Hover.ReleaseAdvancedFadeBar(barKey)
     StopFade(frame, target)
     if state then
         state.customFadeTarget = nil
-        state.isHovered = over
         if s.mouseoverEnabled and over then
             state.fadeDir = "in"
         elseif s.mouseoverEnabled and target == 0 then
@@ -615,8 +604,8 @@ function EAB:EnsureAdvancedFadeHooks()
         end
     end)
 
-    hooksecurefunc(EAB, "RefreshMouseover", function(self, onlyHoverGated)
-        if not onlyHoverGated and self._anyCustomFade then
+    hooksecurefunc(EAB, "RefreshMouseover", function(self)
+        if self._anyCustomFade then
             self:RefreshAllCustomFade(false, true)
         end
     end)
