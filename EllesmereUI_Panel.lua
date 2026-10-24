@@ -2039,7 +2039,7 @@ local function CreateMainFrame()
     -- cannot swap in one that is handed the private button table.
     local pairs = pairs
     -- Lock/unlock excluded modules during an override editing session: their settings cannot be
-    -- captured, so the row grays out and blocks clicks. Called from the session enter/exit paths in EllesmereUI_SpecOverrides.
+    -- captured, so the row grays out and blocks clicks. Called from the session enter/exit paths in EUI_SpecOverrides_Session.lua.
     EllesmereUI.RefreshSidebarOverrideLocks = function()
         local active = EllesmereUI.SpecOverrides_EditSessionActive
             and EllesmereUI.SpecOverrides_EditSessionActive() or false
@@ -3227,6 +3227,17 @@ end
 -- files. Page IDENTITY stays the original string everywhere else (SelectPage, nav targets, unlock elements, spec overrides, saved state); only the tab text changes.
 EllesmereUI.TAB_LABEL_OVERRIDES = EllesmereUI.TAB_LABEL_OVERRIDES or {}
 
+-- A page's tab label (not localized): a suite module's own config.tabLabels[page] first,
+-- so a label never lands on another module's page of the same name, then the shared
+-- TAB_LABEL_OVERRIDES, else the page identity itself. tabLabels is suite-only (plugin
+-- configs are ignored), and on EUI_NS, not EllesmereUI: a public slot would let any
+-- addon relabel the suite's tabs.
+function EUI_NS.GetTabLabel(folderName, page)
+    local m = folderName and EUI_NS.IsSuiteKey(folderName) and modules[folderName]
+    local own = m and type(m.tabLabels) == "table" and m.tabLabels[page]
+    return own or EllesmereUI.TAB_LABEL_OVERRIDES[page] or page
+end
+
 -- Tab buttons are pooled by position (tabBar._tabPool) and re-labelled for each
 -- module; tabBar._tabButtons lists the ones in use, in order.
 ClearTabs = function()
@@ -3279,7 +3290,7 @@ CreateTabButton = function(index, name)
     btn._disabled = nil
     btn._tip      = nil
     local label = btn._label
-    label:SetText(EllesmereUI.L(EllesmereUI.TAB_LABEL_OVERRIDES[name] or name))
+    label:SetText(EllesmereUI.L(EUI_NS.GetTabLabel(activeModule, name)))
     label:SetTextColor(TEXT_DIM.r, TEXT_DIM.g, TEXT_DIM.b, TEXT_DIM.a)
     label:SetAlpha(1)
 
@@ -3650,6 +3661,13 @@ function EllesmereUI:NavigateToElementSettings(moduleName, pageName, sectionName
             end
         end
         return nil
+    end
+
+    -- Refused in combat like Show (see there), before the page selection below
+    -- runs, which has no combat check of its own.
+    if InCombatLockdown() then
+        EllesmereUI.PrintError("Cannot open options during combat.")
+        return
     end
 
     -- First-open split (see _SplitFirstOpen): Show() below returns without
@@ -5272,8 +5290,17 @@ function EllesmereUI:_SplitFirstOpen(afterFn)
     return true
 end
 
+-- The panel never opens in combat (it closes as combat starts). Callers check
+-- before they ask, but an open can still land after combat began: the
+-- first-open split and the Settings button run it a frame later, and a deep
+-- link (NavigateToElementSettings) can come from a click on a game frame.
+-- Pages built then would call widget methods that are blocked in combat.
 function EllesmereUI:Show()
     if self._openPending then return end
+    if InCombatLockdown() then
+        EllesmereUI.PrintError("Cannot open options during combat.")
+        return
+    end
     if self:_SplitFirstOpen(function() EllesmereUI:Show() end) then return end
     CreateMainFrame()
     RefreshSidebarStates()
@@ -5285,6 +5312,12 @@ end
 function EllesmereUI:Hide()   if mainFrame then mainFrame:Hide() end end
 function EllesmereUI:Toggle()
     if self._openPending then return end
+    -- Closing still works in combat; opening or unfolding the mini window does
+    -- not (see Show).
+    if InCombatLockdown() and not (mainFrame and mainFrame:IsShown() and not self._panelCollapsed) then
+        EllesmereUI.PrintError("Cannot open options during combat.")
+        return
+    end
     if self:_SplitFirstOpen(function() EllesmereUI:Toggle() end) then return end
     CreateMainFrame()
     if self._panelCollapsed then
@@ -5498,7 +5531,7 @@ end
 --  (a module can opt out of the latter with searchPrebuild = false).
 --  Developer guide: PLUGINS_API.md.
 -------------------------------------------------------------------------------
-EllesmereUI.PLUGIN_API_VERSION = 1
+EllesmereUI.PLUGIN_API_VERSION = 3
 
 do
     local PREFIX          = EUI_NS.PLUGIN_PREFIX
