@@ -480,6 +480,12 @@ function _G._EUI_BuildProfilesPage(pageName, parent, yOffset)
             popup:SetScript("OnHide", function()
                 if popup._dimmer then popup._dimmer:Hide() end
             end)
+            -- It sits on UIParent, so it closes with the panel, which closes as
+            -- combat starts: a screen-wide dimmer and an armed key capture never
+            -- stay up into combat.
+            EllesmereUI:RegisterOnHide(function()
+                if dimmer:IsShown() then dimmer:Hide() end
+            end)
 
             EllesmereUI.PopupTakeKeys(popup, dimmer)
             popup:SetScript("OnKeyDown", function(self, kkey)
@@ -580,7 +586,7 @@ function _G._EUI_BuildProfilesPage(pageName, parent, yOffset)
             EllesmereUIUnitFrames        = "Simple unit frames with a modern visual style.",
             EllesmereUICooldownManager   = "A CDM replacement focused on performance, customizations and alerts.",
             EllesmereUIResourceBars      = "Custom Resource Bars with thresholds, hash lines and more.",
-            EllesmereUIRaidFrames        = "Incredibly light performance, modern raid frames with endless flexibility.",
+            EllesmereUIRaidFrames        = "Incredibly light performance, modern raid and party frames with endless flexibility.",
             EllesmereUIAuraBuffReminders = "Simple raid buff, auras, consumables and talent reminders.",
             EllesmereUIQoL               = "Lightweight quality of life tools and enhancements.",
             EllesmereUIDragonRiding      = "Skyriding HUD with speed, vigor and second wind tracking.",
@@ -2060,7 +2066,7 @@ function _G._EUI_BuildProfilesPage(pageName, parent, yOffset)
             EllesmereUIUnitFrames        = "Simple unit frames with a modern visual style.",
             EllesmereUICooldownManager   = "A CDM replacement focused on performance, customizations and alerts.",
             EllesmereUIResourceBars      = "Custom Resource Bars with thresholds, hash lines and more.",
-            EllesmereUIRaidFrames        = "Incredibly light performance, modern raid frames with endless flexibility.",
+            EllesmereUIRaidFrames        = "Incredibly light performance, modern raid and party frames with endless flexibility.",
             EllesmereUIAuraBuffReminders = "Simple raid buff, auras, consumables and talent reminders.",
             EllesmereUIQoL               = "Lightweight quality of life tools and enhancements.",
             EllesmereUIDragonRiding      = "Skyriding HUD with speed, vigor and second wind tracking.",

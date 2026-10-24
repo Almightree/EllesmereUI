@@ -264,7 +264,7 @@ searchClear:Hide()
 searchClear:SetScript("OnClick", function()
     bankSearch:SetText("")
     bankSearch:ClearFocus()
-    C_Container.SetItemSearch("")
+    EUI_Bags.ClearSearch()
 end)
 
 bankSearch:SetScript("OnEnterPressed", function(self)
@@ -273,17 +273,15 @@ end)
 bankSearch:SetScript("OnEscapePressed", function(self)
     self:SetText("")
     self:ClearFocus()
-    C_Container.SetItemSearch("")
+    EUI_Bags.ClearSearch()
 end)
-bankSearch:SetScript("OnTextChanged", function(self)
+-- Both windows repaint when the game reports the search (EUI_Bags.SetSearchText).
+local bankSearchChanged = EUI_Bags.WatchSearchBox(bankSearch, EUI_Bags.SetSearchText)
+bankSearch:SetScript("OnTextChanged", function(self, userInput)
     local text = self:GetText()
     searchPlaceholder:SetShown(text == "")
     searchClear:SetShown(text ~= "")
-    EUI_Bags.SetSearchText(text)
-    if EUI_Bank:IsVisible() then EUI_Bank:RefreshBank() end
-    if EUI_Bags and EUI_Bags:IsVisible() and EUI_Bags.RefreshInventory then
-        EUI_Bags:RefreshInventory()
-    end
+    bankSearchChanged(userInput)
 end)
 
 -- Sort button
@@ -1689,15 +1687,15 @@ local EXP_KEY_EMPTY   = -1000
 local function GetExpansionBucketKeyAndLabel(itemLink)
     local expID = GetItemExpansionIDFromLink(itemLink)
     if expID == nil then
-        return EXP_KEY_UNKNOWN, (UNKNOWN or "Unknown")
+        return EXP_KEY_UNKNOWN, (UNKNOWN or EllesmereUI.L("Unknown"))
     end
     local id = tonumber(expID)
     if id == nil then
-        return EXP_KEY_UNKNOWN, (UNKNOWN or "Unknown")
+        return EXP_KEY_UNKNOWN, (UNKNOWN or EllesmereUI.L("Unknown"))
     end
     -- Classic-era sentinel from some clients / items
     if id == 254 or id == 255 then
-        local name = _G["EXPANSION_NAME0"] or "Classic"
+        local name = _G["EXPANSION_NAME0"] or EllesmereUI.L("Classic")
         return 0, name
     end
     local name = _G["EXPANSION_NAME" .. id]
@@ -1705,7 +1703,7 @@ local function GetExpansionBucketKeyAndLabel(itemLink)
         return id, name
     end
     if id == 11 then return id, "Midnight" end
-    return id, "Expansion " .. tostring(id)
+    return id, EllesmereUI.Lf("Expansion %1$d", id)
 end
 
 -- Sub-bucket by item subclass: Recipe/Profession subclasses are the professions
@@ -3226,7 +3224,7 @@ eventFrame:SetScript("OnEvent", function(_, event)
             EUI_Bank._searchBox:SetText("")
             EUI_Bank._searchBox:ClearFocus()
         end
-        C_Container.SetItemSearch("")
+        EUI_Bags.ClearSearch()
         local bankScale = BP().bagScale or 1
         EUI_Bank:SetScale(bankScale)
         EUI_Bank:Show()
@@ -3281,7 +3279,7 @@ eventFrame:SetScript("OnEvent", function(_, event)
             EUI_Bank._searchBox:SetText("")
             EUI_Bank._searchBox:ClearFocus()
         end
-        C_Container.SetItemSearch("")
+        EUI_Bags.ClearSearch()
         EUI_Bank:Hide()
         -- Auto-close bags if we auto-opened them
         if EUI_Bank._autoOpenedBags and EUI_Bags and EUI_Bags:IsVisible() then

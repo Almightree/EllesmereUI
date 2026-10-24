@@ -831,8 +831,7 @@ BuildAllCDMBars = function()
     -- Belt for the active-store cache: every profile apply, import, layout switch and options rebuild passes through here.
     ns._cachedSpecProfiles = nil
     ns._cdmStoreMemo = nil
-    -- Structural edges: claims and resolution inputs both change across a rebuild, so retire the proc-alert claim map and cdID resolution memo.
-    ns._cdmClaimGen = ns._cdmClaimGen + 1
+    -- Resolution inputs change across a rebuild, so retire the cdID resolution memo.
     ns._cdmResGen = ns._cdmResGen + 1
     -- Hard guard: never build with an unknown spec. CDMFinishSetup is gated on GetActiveSpecKey() at OnEnable, so this is a defense in depth for any other path that calls BuildAllCDMBars too early.
     if not ns.GetActiveSpecKey() then return end
@@ -862,6 +861,7 @@ BuildAllCDMBars = function()
     ns.RescanCustomIconFlag()     -- set the per-spell Custom Icon gate (once) before refresh
     ns.RescanActiveGlowFlag()     -- set the Active State Glow gate (once) before refresh
     ns.RescanTalentCondFlag()     -- set the Talent Conditions gate (once) before refresh
+    ns.RescanStanceBarFlag()      -- set the Stance Bar gate (once) before refresh
 
     local p = ECME.db.profile
 

@@ -2068,7 +2068,7 @@ local function CollectAndReanchor()
 
     ns._spellOrderDirty = false  -- spell order caches are now valid
 
-    -- Re-apply proc glows for any active procs (picks up per-spell settings)
+    -- Seed changed proc identities; ordinary reanchors leave event state intact.
     if ns.ScanExistingProcGlows then ns.ScanExistingProcGlows() end
 
     ---------------------------------------------------------------------------
@@ -2314,6 +2314,10 @@ local function CollectAndReanchor()
             if EllesmereUI.ScheduleSettleReapply then
                 EllesmereUI.ScheduleSettleReapply()
             end
+            -- A repopulate queued through EllesmereUI.RequestCDMRepopulate: this
+            -- is the settled point for the live spec, and outside the reanchor,
+            -- which the repopulate's own rebuild runs again.
+            if ns.RunQueuedRepopulate then ns.RunQueuedRepopulate() end
         end)
     else
         -- Routine reanchor (icon churn, mob death, etc.) -- still clear
@@ -2353,9 +2357,6 @@ local function CollectAndReanchor()
         ns._cdmUnresolvedRetries = 0
     end
 
-    -- Claims just settled: retire the proc-alert child map so the next alert
-    -- rebuilds it against the fresh claim set.
-    if ns._cdmClaimGen then ns._cdmClaimGen = ns._cdmClaimGen + 1 end
     if ns.RefreshStaleCDMKeybinds then ns.RefreshStaleCDMKeybinds() end
     -- A flipped Show When Missing icon whose bar Phase 2 did not reach.
     if next(ns._missingFlipBars) then
