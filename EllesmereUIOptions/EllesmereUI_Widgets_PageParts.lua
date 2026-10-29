@@ -13,6 +13,104 @@ local EllesmereUI = _G.EllesmereUI
 -- creates as before.
 local CreateFrame = EllesmereUI._Pool.CreateFrame
 
+local ttsTextPopup
+function EllesmereUI.ShowTTSTextPopup(title, initial, defaultText, onSave, onPreview)
+    if not ttsTextPopup then
+        local dimmer = CreateFrame("Frame", nil, UIParent)
+        dimmer:SetAllPoints(UIParent)
+        dimmer:SetFrameStrata("FULLSCREEN_DIALOG")
+        dimmer:SetFrameLevel(700)
+        dimmer:EnableMouse(true)
+        local shade = dimmer:CreateTexture(nil, "BACKGROUND")
+        shade:SetAllPoints(); shade:SetColorTexture(0, 0, 0, 0.55)
+
+        local popup = CreateFrame("Frame", nil, dimmer)
+        popup:SetSize(300, 164)
+        popup:SetPoint("CENTER")
+        popup:SetFrameStrata("FULLSCREEN_DIALOG")
+        popup:SetFrameLevel(dimmer:GetFrameLevel() + 2)
+        popup:EnableMouse(true)
+        local bg = popup:CreateTexture(nil, "BACKGROUND")
+        bg:SetAllPoints(); bg:SetColorTexture(0.077, 0.068, 0.058, 1)
+        EllesmereUI.MakeBorder(popup, 1, 1, 1, 0.18, EllesmereUI.PanelPP)
+
+        local font = EllesmereUI._font or "Interface\\AddOns\\EllesmereUI\\media\\fonts\\Expressway.ttf"
+        local heading = popup:CreateFontString(nil, "OVERLAY")
+        heading:SetFont(font, 14, "")
+        heading:SetPoint("TOP", popup, "TOP", 0, -16)
+        heading:SetTextColor(1, 1, 1, 1)
+        popup._heading = heading
+
+        local hint = popup:CreateFontString(nil, "OVERLAY")
+        hint:SetFont(font, 10, "")
+        hint:SetPoint("TOPLEFT", popup, "TOPLEFT", 20, -43)
+        hint:SetText(EllesmereUI.L("Leave empty to use the default announcement"))
+        hint:SetTextColor(0.7, 0.7, 0.7, 1)
+
+        local box = CreateFrame("EditBox", nil, popup)
+        box:SetSize(260, 30)
+        box:SetPoint("TOPLEFT", hint, "BOTTOMLEFT", 0, -5)
+        box:SetAutoFocus(false)
+        box:SetMaxLetters(120)
+        box:SetFont(font, 12, "")
+        box:SetTextColor(1, 1, 1, 0.95)
+        box:SetTextInsets(6, 6, 0, 0)
+        box:SetJustifyH("LEFT")
+        local boxBg = box:CreateTexture(nil, "BACKGROUND")
+        boxBg:SetAllPoints(); boxBg:SetColorTexture(0.06, 0.05, 0.04, 1)
+        EllesmereUI.MakeBorder(box, 1, 1, 1, 0.14, EllesmereUI.PanelPP)
+        popup._box = box
+
+        local function Button(label, x, click, accent)
+            local b = CreateFrame("Button", nil, popup)
+            b:SetSize(78, 25)
+            b:SetPoint("BOTTOM", popup, "BOTTOM", x, 13)
+            local ar, ag, ab = EllesmereUI.GetAccentColor()
+            local c = accent and { ar, ag, ab } or { 1, 1, 1 }
+            local texture = b:CreateTexture(nil, "BACKGROUND")
+            texture:SetAllPoints(); texture:SetColorTexture(c[1], c[2], c[3], accent and 0.14 or 0.04)
+            EllesmereUI.MakeBorder(b, c[1], c[2], c[3], accent and 0.45 or 0.15, EllesmereUI.PanelPP)
+            local labelFS = b:CreateFontString(nil, "OVERLAY")
+            labelFS:SetFont(font, 11, "")
+            labelFS:SetPoint("CENTER")
+            labelFS:SetText(EllesmereUI.L(label))
+            labelFS:SetTextColor(c[1], c[2], c[3], 1)
+            b:SetScript("OnClick", click)
+            return b
+        end
+        Button("Preview", -88, function()
+            local text = box:GetText()
+            if popup._onPreview then
+                popup._onPreview(text ~= "" and text or popup._defaultText)
+            else
+                EllesmereUI.SpeakText(text ~= "" and text or popup._defaultText, 0, 100)
+            end
+        end, false)
+        Button("Cancel", 0, function() dimmer:Hide() end, false)
+        Button("Save", 88, function()
+            dimmer:Hide()
+            if popup._onSave then popup._onSave(box:GetText() or "") end
+        end, true)
+        box:SetScript("OnEnterPressed", function()
+            dimmer:Hide()
+            if popup._onSave then popup._onSave(box:GetText() or "") end
+        end)
+        box:SetScript("OnEscapePressed", function() dimmer:Hide() end)
+        dimmer:SetScript("OnMouseDown", function(self)
+            if not popup:IsMouseOver() then self:Hide() end
+        end)
+        popup._dimmer = dimmer
+        ttsTextPopup = popup
+    end
+    ttsTextPopup._heading:SetText(title or "")
+    ttsTextPopup._box:SetText(initial or "")
+    ttsTextPopup._defaultText = defaultText or ""
+    ttsTextPopup._onSave = onSave
+    ttsTextPopup._onPreview = onPreview
+    ttsTextPopup._dimmer:Show()
+    ttsTextPopup._box:SetFocus()
+end
+
 -------------------------------------------------------------------------------
 --  BuildUnlockPlaceholder
 --  Reusable overlay that mirrors the unlock mode mover style. Shows accent-colored text (default "Move in
@@ -163,6 +261,38 @@ function EllesmereUI.BuildSoundDropdownValues(paths, names, order)
         end,
         iconOnClick = function(key) EllesmereUI.PlaySoundPath(paths[key]) end,
         iconTooltip = function() return "Preview Sound" end,
+    }
+    return values, order
+end
+
+-- Voice ids vary by client and installed speech engines, so enumerate them
+-- live. Keep the default voice available when the API or voice list is absent.
+function EllesmereUI.BuildTTSVoiceDropdownValues(onPreview)
+    local values, order = { [0] = "Default" }, { 0 }
+    if C_VoiceChat and C_VoiceChat.GetTtsVoices then
+        local ok, voices = pcall(C_VoiceChat.GetTtsVoices)
+        if ok and type(voices) == "table" then
+            for _, voice in ipairs(voices) do
+                if voice.voiceID and voice.voiceID ~= 0 and voice.name then
+                    values[voice.voiceID] = voice.name
+                    order[#order + 1] = voice.voiceID
+                end
+            end
+        end
+    end
+    values._menuOpts = {
+        itemHeight = 26,
+        maxTextWidthPct = 0.8,
+        iconAtlas = function() return EllesmereUI.SOUND_ICON_ATLAS end,
+        iconPressedAtlas = function() return EllesmereUI.SOUND_ICON_PRESSED_ATLAS end,
+        iconOnClick = function(key)
+            if onPreview then
+                onPreview(key)
+            else
+                EllesmereUI.SpeakText("This is a voice preview", key, 100)
+            end
+        end,
+        iconTooltip = function() return "Preview Voice" end,
     }
     return values, order
 end

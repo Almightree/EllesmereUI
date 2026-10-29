@@ -49,7 +49,7 @@ local function BuildCDMBarsPage(pageName, parent, yOffset)
     if not p or not p.cdmBars then return math.abs(yOffset) end
 
     local bars = p.cdmBars.bars
-    if not bars or #bars == 0 then return math.abs(yOffset) end
+    if not bars or #bars == 0 then return math.abs(y) end
 
 
     -- Clamp selection
@@ -3720,6 +3720,30 @@ local function BuildCDMBarsPage(pageName, parent, yOffset)
         );  y = y - h
     end
     end -- not isFocusKick
+
+    _, h = W:SectionHeader(parent, "TEXT TO SPEECH", y);  y = y - h
+    local ttsVoiceValues, ttsVoiceOrder = EllesmereUI.BuildTTSVoiceDropdownValues(function(voiceID)
+        ns.SpeakTTS("This is a voice preview", voiceID)
+    end)
+    _, h = W:DualRow(parent, y,
+        { type = "dropdown", text = "TTS Voice", values = ttsVoiceValues, order = ttsVoiceOrder,
+          getValue = function()
+              local profile = DB()
+              return (profile and profile.ttsVoiceID) or 0
+          end,
+          setValue = function(value)
+              local profile = DB()
+              if profile then profile.ttsVoiceID = value end
+          end },
+        { type = "slider", text = "TTS Volume", min = 0, max = 100, step = 5,
+          getValue = function()
+              local profile = DB()
+              return (profile and profile.ttsVolume) or 100
+          end,
+          setValue = function(value)
+              local profile = DB()
+              if profile then profile.ttsVolume = value end
+          end });  y = y - h
 
     return math.abs(y)
 end

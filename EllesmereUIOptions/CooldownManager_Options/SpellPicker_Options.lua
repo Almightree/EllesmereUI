@@ -562,11 +562,6 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
                     if t.hideChargeText then ns._cdmAnyHideChargeText = true end
                     if t.suppressGCD then ns._cdmAnySuppressGcd = true end
                     if t.chargeHideSwipe or t.hideRechargeEdge then ns._cdmAnyChargeStyle = true end
-                    if t.cdReadySoundKey and t.cdReadySoundKey ~= "none" then ns._cdmAnyCdReadySound = true end
-                    if (t.buffActiveSoundKey and t.buffActiveSoundKey ~= "none")
-                        or (t.buffLostSoundKey and t.buffLostSoundKey ~= "none") then
-                        ns._cdmAnyBuffSound = true
-                    end
                 end
 
                 -- Any Resource Aware CD-ready glow already saved in this spec
@@ -938,6 +933,7 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
                         local prof = spAll and specKeyA and spAll[specKeyA]
                         if prof then sweepProf(prof) end
                     end
+                    ns.RefreshAudioEnabledState()
                     -- The open menu's view keeps reading through the (possibly freshly created) tier chain.
                     ns.ChainSettings(ss, ns.GetBarTierSettings(sd, barKey))
                     if touchesCas and ns.FakeActive_Rearm then ns.FakeActive_Rearm() end
@@ -2319,6 +2315,11 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
                                         end
                                     end
                                     doWrite()
+                                    -- Breaking away from a bar-applied value returns before the
+                                    -- normal selection refresh below. Refresh dependent controls
+                                    -- (including the TTS editor enabled state) on this path too.
+                                    RefreshFlyoutSelection()
+                                    UpdateLabelColor()
                                     return
                                 end
                                 doWrite()
@@ -3130,8 +3131,66 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
                             }
                         end
                     end
+                    table.insert(AUDIO_ITEMS, 2, { val = "tts", label = EllesmereUI.L("Text to Speech") })
+                    local audioTextRows = {}
+                    local function AddAudioTextRow(label, soundField, textField, event)
+                        local row = CreateFrame("Button", nil, inner)
+                        row:SetHeight(ITEM_H)
+                        row:SetPoint("TOPLEFT", inner, "TOPLEFT", 1, -mH)
+                        row:SetPoint("TOPRIGHT", inner, "TOPRIGHT", -1, -mH)
+                        row:SetFrameLevel(menu:GetFrameLevel() + 2)
+                        local lbl = row:CreateFontString(nil, "OVERLAY")
+                        lbl:SetFont(FONT_PATH, 11, GetCDMOptOutline())
+                        lbl:SetPoint("LEFT", 10, 0)
+                        lbl:SetText(EllesmereUI.L(label))
+                        lbl:SetTextColor(tDimR, tDimG, tDimB, tDimA)
+                        local hl = row:CreateTexture(nil, "ARTWORK")
+                        hl:SetAllPoints(); hl:SetColorTexture(1, 1, 1, 1); hl:SetAlpha(0)
+                        row:SetScript("OnEnter", function()
+                            lbl:SetTextColor(1, 1, 1, 1); hl:SetAlpha(hlA)
+                            if menu._openSub and menu._openSub:IsShown() then menu._openSub:Hide() end
+                        end)
+                        row:SetScript("OnLeave", function()
+                            lbl:SetTextColor(tDimR, tDimG, tDimB, tDimA); hl:SetAlpha(0)
+                        end)
+                        local function RefreshAudioTextRow()
+                            local enabled = ns.EffectiveAudioKey(ss, soundField) == "tts"
+                            row:SetAlpha(enabled and 1 or 0.38)
+                            row:EnableMouse(enabled)
+                            if enabled then
+                                row:SetScript("OnEnter", function()
+                                    lbl:SetTextColor(1, 1, 1, 1); hl:SetAlpha(hlA)
+                                end)
+                                row:SetScript("OnLeave", function()
+                                    lbl:SetTextColor(tDimR, tDimG, tDimB, tDimA); hl:SetAlpha(0)
+                                end)
+                            else
+                                row:SetScript("OnEnter", nil)
+                                row:SetScript("OnLeave", nil)
+                                lbl:SetTextColor(tDimR, tDimG, tDimB, tDimA); hl:SetAlpha(0)
+                            end
+                        end
+                        RefreshAudioTextRow()
+                        row:SetScript("OnClick", function()
+                            if ns.EffectiveAudioKey(ss, soundField) ~= "tts" then return end
+                            menu:Hide()
+                            EllesmereUI.ShowTTSTextPopup(label,
+                                type(ss[textField]) == "string" and ss[textField] or "",
+                                EllesmereUI.DefaultCDMAudioText(spellID, event), function(text)
+                                    EnsureSS()
+                                    SetOwn(textField, text ~= "" and text or false)
+                                    if ns.RefreshCDMIconAppearance then ns.RefreshCDMIconAppearance(barKey) end
+                                end, function(text)
+                                    ns.PlayAudioCue("tts", text, spellID, event)
+                                end)
+                        end)
+                        mH = mH + ITEM_H
+                        audioTextRows[soundField] = row
+                        row._refreshAudioState = RefreshAudioTextRow
+                        return row
+                    end
                     -- Speaker-preview decorator: plays a row's focused sound without selecting it (mirrors the dropdown's preview icon).
-                    local function AddSoundPreview(si, item)
+                    local function AddSoundPreview(si, item, textField, event)
                         if item.val and item.val ~= "none" then
                             local play = CreateFrame("Button", nil, si)
                             play:SetSize(16, 16)
@@ -3140,12 +3199,17 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
                             play:SetNormalAtlas(EllesmereUI.SOUND_ICON_ATLAS)
                             play:SetPushedAtlas(EllesmereUI.SOUND_ICON_PRESSED_ATLAS)
                             play:SetScript("OnClick", function()
+                                if item.val == "tts" then
+                                    ns.PlayAudioCue("tts", ss[textField], spellID, event)
+                                    return
+                                end
                                 local paths = ns.FOCUSKICK_SOUND_PATHS
                                 local path = paths and paths[item.val]
                                 if path then PlaySoundFile(path, "Master") end
                             end)
                             play:SetScript("OnEnter", function()
-                                EllesmereUI.ShowWidgetTooltip(play, "Preview Sound")
+                                EllesmereUI.ShowWidgetTooltip(play, item.val == "tts"
+                                    and EllesmereUI.L("Preview TTS") or EllesmereUI.L("Preview Sound"))
                             end)
                             play:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
                         end
@@ -3155,38 +3219,46 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
                     -- (EnsureBuffSoundHook -> TriggerAuraAppliedAlert); self-timed preset/custom buffs fire it from the cast-timer gain edge in UpdateCustomBuffBars (CdmHooks) off the SAME stored key.
                     local function AddBuffGainRow()
                         MakeSubnavRow("Audio on Buff Gain", AUDIO_ITEMS,
-                            function() return ss.buffActiveSoundKey or "none" end,
+                            function() return ns.AudioModeChoice(ss, "buffActiveSoundKey") end,
                             function(v)
                                 EnsureSS()
-                                SetOwn("buffActiveSoundKey", (v ~= "none" and v) or nil)
-                                -- Flip the 0-cost gate live so the edge hook/cast timer starts playing on the next activation.
-                                if ss.buffActiveSoundKey then ns._cdmAnyBuffSound = true end
+                                ns.SetAudioModeChoice(ss, "buffActiveSoundKey", v)
+                                ns.RefreshAudioEnabledState()
                             end,
-                            function() return ss.buffActiveSoundKey == nil end,
-                            AddSoundPreview,
+                            function() return ss.buffActiveAudioMode == nil and ss.buffActiveSoundKey == nil end,
+                            function(si, item) AddSoundPreview(si, item, "buffActiveTtsText", "gain") end,
                             { searchable = true,
-                              apply = { keys = { "buffActiveSoundKey" },
+                              onRefresh = function()
+                                  local textRow = audioTextRows.buffActiveSoundKey
+                                  if textRow and textRow._refreshAudioState then textRow._refreshAudioState() end
+                              end,
+                              apply = { keys = { "buffActiveAudioMode", "buffActiveSoundKey" },
                                         write = function(t, v)
-                                            -- "None" applied bar-wide = explicitly silent (false blocks the tier below).
-                                            t.buffActiveSoundKey = (v ~= "none" and v) or false
+                                            ns.SetAudioModeChoice(t, "buffActiveSoundKey", v)
                                         end } })
+                        AddAudioTextRow("Edit TTS Message", "buffActiveSoundKey", "buffActiveTtsText", "gain")
                     end
                     -- "Audio on Buff Loss": stored per-icon as ss.buffLostSoundKey.
                     local function AddBuffLossRow()
                         MakeSubnavRow("Audio on Buff Loss", AUDIO_ITEMS,
-                            function() return ss.buffLostSoundKey or "none" end,
+                            function() return ns.AudioModeChoice(ss, "buffLostSoundKey") end,
                             function(v)
                                 EnsureSS()
-                                SetOwn("buffLostSoundKey", (v ~= "none" and v) or nil)
-                                if ss.buffLostSoundKey then ns._cdmAnyBuffSound = true end
+                                ns.SetAudioModeChoice(ss, "buffLostSoundKey", v)
+                                ns.RefreshAudioEnabledState()
                             end,
-                            function() return ss.buffLostSoundKey == nil end,
-                            AddSoundPreview,
+                            function() return ss.buffLostAudioMode == nil and ss.buffLostSoundKey == nil end,
+                            function(si, item) AddSoundPreview(si, item, "buffLostTtsText", "loss") end,
                             { searchable = true,
-                              apply = { keys = { "buffLostSoundKey" },
+                              onRefresh = function()
+                                  local textRow = audioTextRows.buffLostSoundKey
+                                  if textRow and textRow._refreshAudioState then textRow._refreshAudioState() end
+                              end,
+                              apply = { keys = { "buffLostAudioMode", "buffLostSoundKey" },
                                         write = function(t, v)
-                                            t.buffLostSoundKey = (v ~= "none" and v) or false
+                                            ns.SetAudioModeChoice(t, "buffLostSoundKey", v)
                                         end } })
+                        AddAudioTextRow("Edit TTS Message", "buffLostSoundKey", "buffLostTtsText", "loss")
                     end
 
                     -- Desaturate Inactive applies only to Blizzard-tracked buffs (inactive
@@ -3630,6 +3702,7 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
                                 label = (ns.FOCUSKICK_SOUND_NAMES and ns.FOCUSKICK_SOUND_NAMES[key]) or key }
                         end
                     end
+                    table.insert(CDR_ITEMS, 2, { val = "tts", label = EllesmereUI.L("Text to Speech") })
                     local function AddCdrPreview(si, item)
                         if not (item.val and item.val ~= "none") then return end
                         local play = CreateFrame("Button", nil, si)
@@ -3639,22 +3712,52 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
                         play:SetNormalAtlas(EllesmereUI.SOUND_ICON_ATLAS)
                         play:SetPushedAtlas(EllesmereUI.SOUND_ICON_PRESSED_ATLAS)
                         play:SetScript("OnClick", function()
+                            if item.val == "tts" then
+                                ns.PlayAudioCue("tts", cas.cdReadyTtsText, spellID, "ready")
+                                return
+                            end
                             local path = ns.FOCUSKICK_SOUND_PATHS and ns.FOCUSKICK_SOUND_PATHS[item.val]
                             if path then PlaySoundFile(path, "Master") end
                         end)
-                        play:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(play, "Preview Sound") end)
+                        play:SetScript("OnEnter", function()
+                            EllesmereUI.ShowWidgetTooltip(play, item.val == "tts"
+                                and EllesmereUI.L("Preview TTS") or EllesmereUI.L("Preview Sound"))
+                        end)
                         play:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
                     end
+                    local cdrTtsTextRow
                     MakeSubnavRow("Audio Effect on CD Ready", CDR_ITEMS,
-                        function() return (cas and cas.cdReadySoundKey) or "none" end,
+                        function() return ns.AudioModeChoice(cas, "cdReadySoundKey") end,
                         function(v)
                             local e = EnsureCAS()
-                            e.cdReadySoundKey = (v ~= "none" and v) or nil
+                            ns.SetAudioModeChoice(e, "cdReadySoundKey", v)
+                            ns.RefreshAudioEnabledState()
+                            if cdrTtsTextRow then
+                                local enabled = v == "tts"
+                                cdrTtsTextRow:SetAlpha(enabled and 1 or 0.38)
+                                cdrTtsTextRow:EnableMouse(enabled)
+                            end
                             if ns.FakeActive_Rearm then ns.FakeActive_Rearm() end
                         end,
-                        function() return not (cas and cas.cdReadySoundKey) end,
+                        function() return cas.cdReadyAudioMode == nil and cas.cdReadySoundKey == nil end,
                         AddCdrPreview,
                         { searchable = true })
+                    cdrTtsTextRow = MakeActionRow("Edit TTS Message", function()
+                        if ns.EffectiveAudioKey(cas, "cdReadySoundKey") ~= "tts" then return end
+                        menu:Hide()
+                        EllesmereUI.ShowTTSTextPopup(
+                            EllesmereUI.L("Cooldown Ready TTS Message"),
+                            type(cas.cdReadyTtsText) == "string" and cas.cdReadyTtsText or "",
+                            EllesmereUI.DefaultCDMAudioText(spellID, "ready"), function(text)
+                                EnsureCAS().cdReadyTtsText = text ~= "" and text or false
+                                if ns.FakeActive_Rearm then ns.FakeActive_Rearm() end
+                            end, function(text)
+                                ns.PlayAudioCue("tts", text, spellID, "ready")
+                            end)
+                    end)
+                    local cdrTtsEnabled = ns.EffectiveAudioKey(cas, "cdReadySoundKey") == "tts"
+                    cdrTtsTextRow:SetAlpha(cdrTtsEnabled and 1 or 0.38)
+                    cdrTtsTextRow:EnableMouse(cdrTtsEnabled)
 
                     if not hasActive then
                         MakeActionRow("Add Active State", function()
@@ -4298,6 +4401,7 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
                         }
                     end
                 end
+                table.insert(CDR_AUDIO_ITEMS, 2, { val = "tts", label = EllesmereUI.L("Text to Speech") })
                 local function AddCdrSoundPreview(si, item)
                     if item.val and item.val ~= "none" then
                         local play = CreateFrame("Button", nil, si)
@@ -4307,6 +4411,10 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
                         play:SetNormalAtlas(EllesmereUI.SOUND_ICON_ATLAS)
                         play:SetPushedAtlas(EllesmereUI.SOUND_ICON_PRESSED_ATLAS)
                         play:SetScript("OnClick", function()
+                            if item.val == "tts" then
+                                ns.PlayAudioCue("tts", ss.cdReadyTtsText, spellID, "ready")
+                                return
+                            end
                             local paths = ns.FOCUSKICK_SOUND_PATHS
                             local path = paths and paths[item.val]
                             if path then PlaySoundFile(path, "Master") end
@@ -4317,24 +4425,59 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
                         play:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
                     end
                 end
+                local cdReadyTtsTextRow
                 local cdReadySoundRow = MakeSubnavRow("Audio Effect on CD Ready", CDR_AUDIO_ITEMS,
-                    function() return ss.cdReadySoundKey or "none" end,
+                    function() return ns.AudioModeChoice(ss, "cdReadySoundKey") end,
                     function(v)
                         EnsureSS()
-                        SetOwn("cdReadySoundKey", (v ~= "none" and v) or nil)
-                        -- Flip the 0-cost gate live so the edge hook starts evaluating on the next
-                        -- desaturation tick, and refresh so a CHARGE spell registers on the SPELL_UPDATE_CHARGES watcher immediately.
-                        if ss.cdReadySoundKey then ns._cdmAnyCdReadySound = true end
+                        ns.SetAudioModeChoice(ss, "cdReadySoundKey", v)
+                        ns.RefreshAudioEnabledState()
+                        if cdReadyTtsTextRow then
+                            local enabled = v == "tts"
+                            cdReadyTtsTextRow:SetAlpha(enabled and 1 or 0.38)
+                            cdReadyTtsTextRow:EnableMouse(enabled)
+                        end
+                        -- Refresh the aggregate gate, then register/unregister this icon on refresh.
                         if ns.RefreshCDMIconAppearance then ns.RefreshCDMIconAppearance(barKey) end
                     end,
-                    function() return ss.cdReadySoundKey == nil end,
+                    function() return ss.cdReadyAudioMode == nil and ss.cdReadySoundKey == nil end,
                     AddCdrSoundPreview,
                     { searchable = true,
-                      apply = { keys = { "cdReadySoundKey" },
+                      apply = { keys = { "cdReadyAudioMode", "cdReadySoundKey" },
                                 write = function(t, v)
-                                    -- "None" applied bar-wide = explicitly silent.
-                                    t.cdReadySoundKey = (v ~= "none" and v) or false
+                                    ns.SetAudioModeChoice(t, "cdReadySoundKey", v)
                                 end } })
+                local ttsTextRow = CreateFrame("Button", nil, inner)
+                ttsTextRow:SetHeight(ITEM_H)
+                ttsTextRow:SetPoint("TOPLEFT", inner, "TOPLEFT", 1, -mH)
+                ttsTextRow:SetPoint("TOPRIGHT", inner, "TOPRIGHT", -1, -mH)
+                ttsTextRow:SetFrameLevel(menu:GetFrameLevel() + 2)
+                local ttsTextLabel = ttsTextRow:CreateFontString(nil, "OVERLAY")
+                ttsTextLabel:SetFont(FONT_PATH, 11, GetCDMOptOutline())
+                ttsTextLabel:SetPoint("LEFT", 10, 0)
+                ttsTextLabel:SetText(EllesmereUI.L("Edit TTS Message"))
+                ttsTextLabel:SetTextColor(tDimR, tDimG, tDimB, tDimA)
+                cdReadyTtsTextRow = ttsTextRow
+                ttsTextRow:SetScript("OnClick", function()
+                    if ns.EffectiveAudioKey(ss, "cdReadySoundKey") ~= "tts" then return end
+                    menu:Hide()
+                    EllesmereUI.ShowTTSTextPopup(
+                        EllesmereUI.L("Cooldown Ready TTS Message"),
+                        type(ss.cdReadyTtsText) == "string" and ss.cdReadyTtsText or "",
+                        EllesmereUI.DefaultCDMAudioText(spellID, "ready"), function(text)
+                            EnsureSS()
+                            SetOwn("cdReadyTtsText", text ~= "" and text or false)
+                            if ns.RefreshCDMIconAppearance then ns.RefreshCDMIconAppearance(barKey) end
+                        end, function(text)
+                            ns.PlayAudioCue("tts", text, spellID, "ready")
+                        end)
+                end)
+                ttsTextRow:SetScript("OnEnter", function() ttsTextLabel:SetTextColor(1, 1, 1, 1) end)
+                ttsTextRow:SetScript("OnLeave", function() ttsTextLabel:SetTextColor(tDimR, tDimG, tDimB, tDimA) end)
+                local cdReadyTtsEnabled = ns.EffectiveAudioKey(ss, "cdReadySoundKey") == "tts"
+                ttsTextRow:SetAlpha(cdReadyTtsEnabled and 1 or 0.38)
+                ttsTextRow:EnableMouse(cdReadyTtsEnabled)
+                mH = mH + ITEM_H
                 -- Custom-injected spells drive their cd-state through the Fake-Active engine,
                 -- not the SetDesaturated/GetSpellCooldown edge this sound rides, so dim the row for them (same as Cooldown State Effect above).
                 if isCustomInjected and cdReadySoundRow then

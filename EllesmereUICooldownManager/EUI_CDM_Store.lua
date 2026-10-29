@@ -912,33 +912,51 @@ function ns.RescanMaxStacksGlowFlag()
     end)
 end
 
--- Audio on Buff Gain/Loss gate: set ns._cdmAnyBuffSound once if any saved buff icon or
--- tracking bar (any spec) has a gain OR loss sound chosen, so DecorateFrame/RefreshCDMIconAppearance
--- skip attaching the apply-edge sound hook for non-users. The icon half keeps the scanned-once +
--- runtime-enable contract of RescanMaxStacksGlowFlag. ns._tbbAnyBuffSound is the tracking-bar
--- half on its own, so icon-only users skip the tracking-bar lookup on every buff alert. Its scan
--- is O(specs x bars) with no allocation, so it repeats on every rebuild until it finds a sound,
--- which also picks up bar sounds a live profile switch brings in.
-function ns.RescanBuffSoundFlag()
-    if not EllesmereUIDB then return end
-    if not ns._buffSoundFlagScanned then
-        ns._buffSoundFlagScanned = true
-        if not ns._cdmAnyBuffSound then
-            ns.ForEachSavedSettingsBlock(function(ss)
-                if (ss.buffActiveSoundKey and ss.buffActiveSoundKey ~= "none")
-                    or (ss.buffLostSoundKey and ss.buffLostSoundKey ~= "none") then
-                    ns._cdmAnyBuffSound = true
-                    return true
-                end
-            end)
+-- Recompute the audio gates after configuration changes. Missing mode fields
+-- still resolve through legacy sound keys in EffectiveAudioKey.
+function ns.RefreshAudioEnabledState()
+    local anyCDReady, anyBuffGain, anyBuffLoss = false, false, false
+    ns.ForEachSavedSettingsBlock(function(ss)
+        if not anyCDReady and ns.EffectiveAudioKey(ss, "cdReadySoundKey") then
+            anyCDReady = true
+        end
+        if not anyBuffGain and ns.EffectiveAudioKey(ss, "buffActiveSoundKey") then anyBuffGain = true end
+        if not anyBuffLoss and ns.EffectiveAudioKey(ss, "buffLostSoundKey") then anyBuffLoss = true end
+        return anyCDReady and anyBuffGain and anyBuffLoss
+    end)
+    local profile = ECME and ECME.db and ECME.db.profile
+    local customActive = profile and profile.customActiveStates
+    if customActive and not anyCDReady then
+        for _, settings in pairs(customActive) do
+            if type(settings) == "table" and ns.EffectiveAudioKey(settings, "cdReadySoundKey") then
+                anyCDReady = true
+                break
+            end
         end
     end
-    -- Tracking Bars keep the same two keys on their bar configs, which the
-    -- settings-block walk above never visits. EnsureTBBSoundHooks flips both
-    -- gates and hooks the frames already out of the buff viewer pools.
-    if not ns._tbbAnyBuffSound and ns.TBBAnyBuffSound and ns.TBBAnyBuffSound() then
+    local anyTBBGain, anyTBBLoss = false, false
+    if ns.TBBAnyBuffSound then anyTBBGain, anyTBBLoss = ns.TBBAnyBuffSound() end
+    local anyTBB = anyTBBGain or anyTBBLoss
+    local hadTBB = ns._tbbAnyBuffSound
+    ns._cdmAnyCdReadySound = anyCDReady
+    ns._cdmAnyBuffActiveSound = anyBuffGain or anyTBBGain
+    ns._cdmAnyBuffLostSound = anyBuffLoss or anyTBBLoss
+    ns._cdmAnyBuffSound = ns._cdmAnyBuffActiveSound or ns._cdmAnyBuffLostSound
+    ns._tbbAnyBuffSound = anyTBB
+    ns._tbbAnyBuffActiveSound = anyTBBGain
+    ns._tbbAnyBuffLostSound = anyTBBLoss
+    ns._buffSoundFlagScanned = true
+    ns._cdReadySoundFlagScanned = true
+    if anyTBB and not hadTBB and ns.EnsureTBBSoundHooks then
         ns.EnsureTBBSoundHooks()
     end
+    if ns.RefreshCdReadyAudioWatchState then
+        ns.RefreshCdReadyAudioWatchState()
+    end
+end
+
+function ns.RescanBuffSoundFlag()
+    ns.RefreshAudioEnabledState()
 end
 
 -- Resolve the configured buff gain/loss sound key for a spell id in the CURRENT
@@ -946,26 +964,8 @@ end
 -- decoration state (_ecmeFC): the first buff gain after login fires its aura
 -- alert BEFORE DecorateFrame populates that state, so this must resolve purely
 -- from the id. O(bars): spellSettings is keyed by id.
-function ns.FindBuffSoundKey(sid, field)
-    if not sid then return nil end
-    local specKey = ns.GetActiveSpecKey and ns.GetActiveSpecKey()
-    if not specKey or specKey == "0" then return nil end
-    local sp = SpellStore and SpellStore.GetSpecProfiles and SpellStore.GetSpecProfiles()
-    local prof = sp and sp[specKey]
-    if not prof then return nil end
-    -- Per-spell tier: buff family store (explicit false = inherited bar-level
-    -- sound turned OFF for this one buff -- treat as silent).
-    local st = prof.spellSettingsBuff
-    local own = st and st[sid]
-    if own then
-        local v = rawget(own, field)
-        if v ~= nil then
-            if v and v ~= "none" then return v end
-            return nil
-        end
-    end
-    -- Bar tier: the buff bar this spell renders on. Extra buff bars claim
-    -- their spells via assignedSpells; everything else lives on "buffs".
+function ns.GetBuffBarTierForProfile(prof, sid)
+    if not prof or not sid then return nil end
     local homeKey = "buffs"
     local barSpells = prof.barSpells
     if barSpells then
@@ -979,26 +979,60 @@ function ns.FindBuffSoundKey(sid, field)
         end
     end
     local bsHome = barSpells and barSpells[homeKey]
-    local tier = ns.GetBarTierSettings(bsHome, homeKey)
-    local key = tier and tier[field]
-    if key and key ~= "none" then return key end
+    return ns.GetBarTierSettings(bsHome, homeKey), homeKey
+end
+
+function ns.GetBuffBarTierForSpell(sid)
+    if not sid then return nil end
+    local specKey = ns.GetActiveSpecKey and ns.GetActiveSpecKey()
+    if not specKey or specKey == "0" then return nil end
+    local sp = SpellStore and SpellStore.GetSpecProfiles and SpellStore.GetSpecProfiles()
+    local prof = sp and sp[specKey]
+    return ns.GetBuffBarTierForProfile(prof, sid)
+end
+
+function ns.FindBuffSoundKey(sid, field)
+    if not sid then return nil end
+    local specKey = ns.GetActiveSpecKey and ns.GetActiveSpecKey()
+    if not specKey or specKey == "0" then return nil end
+    local sp = SpellStore and SpellStore.GetSpecProfiles and SpellStore.GetSpecProfiles()
+    local prof = sp and sp[specKey]
+    if not prof then return nil end
+    -- Per-spell tier: buff family store (explicit false = inherited bar-level
+    -- sound turned OFF for this one buff -- treat as silent).
+    local st = prof.spellSettingsBuff
+    local own = st and st[sid]
+    if own then
+        local mode = rawget(own, ns.AudioModeField(field))
+        local textField = ns.AudioTextField(field)
+        if mode == "tts" then return "tts", textField and rawget(own, textField) end
+        if mode == "none" then return false end
+        if mode == "sound" then
+            local key = rawget(own, field)
+            if key and key ~= "none" then return key end
+            return false
+        end
+        local v = rawget(own, field)
+        if v ~= nil then
+            if v and v ~= "none" then return v, textField and rawget(own, textField) end
+            return false
+        end
+    end
+    -- Bar tier: the buff bar this spell renders on; extra buff bars claim it
+    -- via assignedSpells. The same resolver supplies cold-frame inheritance.
+    local tier = ns.GetBuffBarTierForProfile(prof, sid)
+    local mode = tier and tier[ns.AudioModeField(field)]
+    if mode == "none" then return false end
+    local key = ns.EffectiveAudioKey(tier, field)
+    local textField = ns.AudioTextField(field)
+    if key then return key, key == "tts" and textField and tier[textField] end
+    if mode == "sound" or (tier and rawget(tier, field) ~= nil) then return false end
     return nil
 end
 
--- Audio Effect on CD Ready gate: set ns._cdmAnyCdReadySound once if any saved
--- cd/utility icon (any spec) has a CD-ready sound chosen, so the per-frame
--- SetDesaturated edge hook no-ops entirely for non-users. Same monotonic,
--- scanned-once contract as RescanBuffSoundFlag.
+-- Compatibility entry point for callers that refresh the audio gates.
 function ns.RescanCdReadySoundFlag()
-    if ns._cdmAnyCdReadySound or ns._cdReadySoundFlagScanned then return end
-    if not EllesmereUIDB then return end
-    ns._cdReadySoundFlagScanned = true
-    ns.ForEachSavedSettingsBlock(function(ss)
-        if ss.cdReadySoundKey and ss.cdReadySoundKey ~= "none" then
-            ns._cdmAnyCdReadySound = true
-            return true
-        end
-    end)
+    ns.RefreshAudioEnabledState()
 end
 
 -- "Replace with Buff" gate: set ns._cdmAnyBuffReplace once if any saved cd/utility
