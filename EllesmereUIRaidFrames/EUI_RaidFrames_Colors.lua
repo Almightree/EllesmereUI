@@ -565,6 +565,16 @@ local function ResolveDisplayName(unit, applyCap, s)
             display = dn
         end
     end
+    -- CustomNames (LibStub library), set by RegisterCustomNames once it has loaded.
+    -- UnitName returns the raw name when none is set, so dn ~= name keeps the
+    -- Ambiguate path; a secret name is never compared.
+    if not display and ns._customNames and not (issecretvalue and issecretvalue(name)) then
+        local ok, dn = pcall(ns._customNames.UnitName, unit)
+        if ok and type(dn) == "string"
+           and not (issecretvalue and issecretvalue(dn)) and dn ~= "" and dn ~= name then
+            display = dn
+        end
+    end
     if not display then
         if Ambiguate then name = Ambiguate(name, "short") end
         display = EllesmereUI.WithSurname(name, surname)

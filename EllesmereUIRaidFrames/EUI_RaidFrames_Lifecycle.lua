@@ -650,6 +650,27 @@ function ERF:OnEnable()
         end)
     end
     EventUtil.ContinueOnAddOnLoaded("MethodInternal", RegisterMethodInternalNicknames)
+    -- CustomNames fires one callback per character, so a BattleTag rename or an
+    -- import arrives as a burst: refresh once on the next frame.
+    local function RegisterCustomNames()
+        local CN = LibStub and LibStub("CustomNames", true)
+        if not (CN and CN.UnitName and CN.RegisterCallback) or ns._customNames then return end
+        ns._customNames = CN
+        local pending
+        local function onChange()
+            if pending then return end
+            pending = true
+            C_Timer.After(0, function()
+                pending = nil
+                if ns.RefreshAllNames then ns.RefreshAllNames() end
+            end)
+        end
+        CN.RegisterCallback("EllesmereUI", "Name_Added", onChange)
+        CN.RegisterCallback("EllesmereUI", "Name_Update", onChange)
+        CN.RegisterCallback("EllesmereUI", "Name_Removed", onChange)
+        if ns.RefreshAllNames then ns.RefreshAllNames() end
+    end
+    EventUtil.ContinueOnAddOnLoaded("CustomNames", RegisterCustomNames)
 
     -- Init options module if it loaded before us
     if ns._InitEUIModule then

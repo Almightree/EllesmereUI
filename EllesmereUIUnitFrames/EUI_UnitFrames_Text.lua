@@ -663,6 +663,15 @@ function ns.ResolveUnitNickname(unit)
             display = dn
         end
     end
+    -- CustomNames (LibStub library): UnitName returns the custom name, or the raw
+    -- name when none is set, so dn ~= name keeps the WithSurname path.
+    if not display and not nameSecret and ns._customNames then
+        local ok, dn = pcall(ns._customNames.UnitName, unit)
+        if ok and type(dn) == "string"
+           and not (issecretvalue and issecretvalue(dn)) and dn ~= "" and dn ~= name then
+            display = dn
+        end
+    end
     if display then return display end
     return EllesmereUI.WithSurname(name, surname)
 end
@@ -773,6 +782,23 @@ do
         end)
     end
     EventUtil.ContinueOnAddOnLoaded("MethodInternal", RegisterMethodInternal)
+    -- CustomNames fires one callback per character, so a BattleTag rename or an
+    -- import arrives as a burst: repaint once on the next frame.
+    EventUtil.ContinueOnAddOnLoaded("CustomNames", function()
+        local CN = LibStub and LibStub("CustomNames", true)
+        if not (CN and CN.UnitName and CN.RegisterCallback) or ns._customNames then return end
+        ns._customNames = CN
+        local pending
+        local function QueueRefresh()
+            if pending then return end
+            pending = true
+            C_Timer.After(0, function() pending = nil; RefreshNames() end)
+        end
+        CN.RegisterCallback("EllesmereUIUnitFrames", "Name_Added", QueueRefresh)
+        CN.RegisterCallback("EllesmereUIUnitFrames", "Name_Update", QueueRefresh)
+        CN.RegisterCallback("EllesmereUIUnitFrames", "Name_Removed", QueueRefresh)
+        RefreshNames()
+    end)
 end
 
 -- "Name > Target" is built from FOUR tags so the (possibly SECRET) target name is never
