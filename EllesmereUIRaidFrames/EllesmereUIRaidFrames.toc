@@ -6,7 +6,6 @@
 ## Author: Ellesmere
 ## Version: 9.7
 ## Dependencies: EllesmereUI
-## OptionalDeps: CustomNames
 ## SavedVariables: EllesmereUIRaidFramesDB
 ## IconTexture: Interface\AddOns\EllesmereUI\media\eg-logo.tga
 
