@@ -385,6 +385,17 @@ function EAB.VisibilityCompat.Normalize(settings)
     return EAB.VisibilityCompat.ApplyMode(settings, "always")
 end
 
+-- Effective Never for runtime gates: an applied Visibility override replaces the
+-- saved mode, so a Never bar with an Always override is NOT hidden, and
+-- an Always bar with a Never override is. Raw alwaysHidden/barVisibility reads stay
+-- correct only where the SHARED value is meant (sync copies, the setter itself).
+function EAB.VisibilityCompat.IsNever(s)
+    if not s then return false end
+    local ov = EllesmereUI.VisOverrideValue(s)
+    if ov then return ov == "never" end
+    return (s.alwaysHidden or s.barVisibility == "never") and true or false
+end
+
 function EAB.VisibilityCompat.Copy(dst, src, dstNoGroupModes)
     if not dst or not src then return end
 
@@ -528,6 +539,11 @@ local defaults = {
         -- (default, unchanged behavior), 2 = flat tint over the whole button
         -- instead, 3 = both. The overlay leaves the button edge free for the
         -- proc glow, which is the point of offering it.
+        -- Optional custom Assisted Highlight glows are purely additive. A value
+        -- of 0 keeps the existing assistGlowStyle path and its current behavior.
+        assistGlowType = 0,
+        assistGlowColor = { r = 0.15, g = 0.5, b = 1 },
+        assistGlowUseClassColor = false,
         assistGlowStyle = 1,
         -- On Cropped bars, size the glow ring to the button's rectangle
         -- instead of scaling the square art by width. Off = today's ring.
@@ -567,6 +583,12 @@ for _, info in ipairs(BAR_CONFIG) do
         buttonHeight = 0,
         mouseoverEnabled = false,
         mouseoverAlpha = 1,
+        -- Optional Advanced Fade layer. OFF preserves native upstream alpha behavior.
+        advancedFadeEnabled = false,
+        fadeMaxAlpha = 1,
+        fadeInSpeed = 0.15,
+        fadeOutSpeed = 0.15,
+        fadeConditions = {},
         combatShowEnabled = false,
         combatHideEnabled = false,
         housingHideEnabled = false,
@@ -679,6 +701,12 @@ for _, info in ipairs(EXTRA_BARS) do
     defaults.profile.bars[info.key] = {
         mouseoverEnabled = false,
         mouseoverAlpha = 1,
+        -- Optional Advanced Fade layer. OFF preserves native upstream alpha behavior.
+        advancedFadeEnabled = false,
+        fadeMaxAlpha = 1,
+        fadeInSpeed = 0.15,
+        fadeOutSpeed = 0.15,
+        fadeConditions = {},
         combatShowEnabled = false,
         combatHideEnabled = false,
         housingHideEnabled = false,
@@ -838,8 +866,7 @@ local function ShouldQuickKeybindSurfaceBar(s)
     -- Surfaces bars hidden by transient runtime rules, but explicit "Never" wins.
     -- Hide Bar When Using Gamepad is not a Never: its verdict (EAB._padHide) is
     -- off while this mode is open, so a controller player can bind those bars.
-    local vis = s.barVisibility or "always"
-    return not s.alwaysHidden and vis ~= "never"
+    return not EAB.VisibilityCompat.IsNever(s)
 end
 
 local function FadeTo(frame, toAlpha, duration)

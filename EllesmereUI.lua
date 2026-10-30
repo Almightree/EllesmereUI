@@ -359,7 +359,8 @@ local ICONS_PATH    = MEDIA_PATH .. "icons\\"
 -------------------------------------------------------------------------------
 --  Season M+ Portals -- single source of truth for every portal/teleport list in
 --  the suite (Chat flyout, Minimap flyout, QoL /keys resolver, DataBars tooltip).
---  Update ONCE here each season. Order = flyout grid order (top-left to bottom-right).
+--  SEASON UPDATE: one entry per dungeon of the new Mythic+ pool, updated ONCE
+--  here. Order = flyout grid order (top-left to bottom-right).
 --    spellID     - primary teleport spell id
 --    short       - abbreviated label used by the flyout buttons
 --    dungeonID   - LFG dungeonID (GetLFGDungeonInfo name lookup)
@@ -705,9 +706,11 @@ local ADDON_ROSTER = {
 }
 
 -------------------------------------------------------------------------------
---  Addon Groups -- ordered sidebar categories (group = text header, no toggle; members
---  = child rows, order authoritative, coming-soon last). On EllesmereUI, not a file
---  local, to stay under the 200-local / CreateMainFrame 60-upvalue caps.
+--  Addon Groups -- ordered sidebar categories (group = header the player can
+--  collapse; members = child rows, order authoritative, coming-soon last). Keys
+--  stay stable when a label changes: other addons look groups up by key. On
+--  EllesmereUI, not a file local, to stay under the 200-local / CreateMainFrame
+--  60-upvalue caps.
 -------------------------------------------------------------------------------
 EllesmereUI.ADDON_GROUPS = {
     {
@@ -723,32 +726,38 @@ EllesmereUI.ADDON_GROUPS = {
         },
     },
     {
+        key     = "secondary",
+        label   = "Secondary Addons",
+        members = {
+            "EllesmereUIMythicTimer",
+            "EllesmereUIDamageMeters",
+            "EllesmereUIAuraBuffReminders",
+            "EllesmereUILoadoutManager",
+            "EllesmereUISimpleLootCouncil",
+        },
+    },
+    {
         key     = "qol",
-        label   = "QoL Addons",
+        label   = "Utility Addons",
         members = {
             "EllesmereUIQoL",
             "EllesmereUIForeverEssentials",
-            "EllesmereUISimpleLootCouncil",
-            "EllesmereUIAuraBuffReminders",
             "EllesmereUIDataBars",
             "EllesmereUIQuickdraw",
-            "EllesmereUILoadoutManager",
             "EllesmereUIPartyMode",
         },
     },
     {
         key     = "reskin",
-        label   = "UI Reskin Addons",
+        label   = "UI Enhancements",
         members = {
             "EllesmereUIBlizzardSkin",
-            "EllesmereUIMythicTimer",
-            "EllesmereUIDamageMeters",
-            "EllesmereUIGroupFinder",
-            "EllesmereUIQuestTracker",
-            "EllesmereUIFriends",
-            "EllesmereUIMinimap",
             "EllesmereUIChat",
             "EllesmereUIBags",
+            "EllesmereUIQuestTracker",
+            "EllesmereUIGroupFinder",
+            "EllesmereUIFriends",
+            "EllesmereUIMinimap",
         },
     },
 }
@@ -2395,9 +2404,11 @@ do
     --   If any owned toy is on CD -> Astral Recall (shorter CD)
     --   Otherwise -> random owned toy (variety)
     -- For non-Shamans: random owned toy HS, fallback to item 6948
-    function EllesmereUI.ResolveHearthSlot()
+    -- noAstralRecall: resolve as a non-Shaman (Quickdraw's Random Hearthstone).
+    function EllesmereUI.ResolveHearthSlot(noAstralRecall)
         local _, cls = UnitClass("player")
-        local isShaman = cls == "SHAMAN" and IsPlayerSpell(SHAMAN_ASTRAL_RECALL)
+        local isShaman = not noAstralRecall
+            and cls == "SHAMAN" and IsPlayerSpell(SHAMAN_ASTRAL_RECALL)
 
         if isShaman and InProtectedInstance() then
             local info = C_Spell and C_Spell.GetSpellInfo and C_Spell.GetSpellInfo(SHAMAN_ASTRAL_RECALL)
@@ -2709,6 +2720,14 @@ EllesmereUI._IS_STANDALONE  = IS_STANDALONE
 --               applies): anchor links never move it and it offers no link or
 --               screen-edge menu, so no link becomes a third owner of the frame.
 --               Mover drags and nudges still move it and save through savePos
+--    isPositionHeld (function(key)) -> bool  true while something else places
+--               the frame (the quest tracker inside Blizzard's managed frame
+--               container): outside an unlock session, saved positions and
+--               anchor links leave it where it is
+--    noSpecLayout (boolean) spec override unlock layouts neither bank nor
+--               restore the element: one spot for every spec (the quest
+--               tracker, whose spot lives in the shared Edit Mode layout and
+--               takes a reload to change)
 --    linkedKeys (table)  list of element keys that move with this one
 --    noResize   (boolean) true for Blizzard elements that cannot be resized
 --    sizeFixedByLook (boolean) the current look fixes the element's size
@@ -2751,6 +2770,8 @@ function EllesmereUI.MakeUnlockElement(opts)
         isAnchored    = opts.isAnchored,
         onLiveMove    = opts.onLiveMove,
         ownsPosition  = opts.ownsPosition,
+        isPositionHeld = opts.isPositionHeld,
+        noSpecLayout  = opts.noSpecLayout,
         linkedKeys    = opts.linkedKeys,
         noResize          = opts.noResize,
         linkedDimensions  = opts.linkedDimensions,
@@ -3234,7 +3255,7 @@ end
 -------------------------------------------------------------------------------
 --  Slash commands
 -------------------------------------------------------------------------------
-EllesmereUI.VERSION = "9.6.6"
+EllesmereUI.VERSION = "9.7.1"
 
 -- Register this addon's version into a shared global table (taint-free at load time)
 if not _G._EUI_AddonVersions then _G._EUI_AddonVersions = {} end
@@ -3323,6 +3344,15 @@ EllesmereUI._RunConflictCheck = function()
             if not EllesmereUIDB then return true end
             return EllesmereUIDB[key] ~= false
         end
+        -- Another Mythic+ timer addon only clashes with the Mythic+ Timer window,
+        -- so it is named only while that window is on, and the message points at
+        -- its switch (the rest of Mythic+ Tools keeps running beside it).
+        local function MPlusTimerOn()
+            return _G._EMT_IsTimerEnabled and _G._EMT_IsTimerEnabled()
+        end
+        local function MPlusTimerMsg(label)
+            return EllesmereUI.Lf("%1$s conflicts with EllesmereUI's Mythic+ Timer. Turn off Enable Mythic+ Timer on the Mythic+ Timer tab of Mythic+ Tools, or disable %1$s.", label)
+        end
         local conflicts = {
             { addon = "ElvUI",                    label = "ElvUI",                      targets = "all",                              message = "Many of ElvUI's modules are incompatible with EllesmereUI. Make sure to disable any conflicting modules." },
             { addon = "DandersFrames",            label = "Danders Frames",             targets = { "EllesmereUIRaidFrames" } },
@@ -3369,9 +3399,12 @@ EllesmereUI._RunConflictCheck = function()
             { addon = "SkironCooldownManager",    label = "Skiron Cooldown Manager",    targets = { "EllesmereUICooldownManager" } },
             { addon = "ArcUI",                    label = "ArcUI",                      targets = { "EllesmereUICooldownManager", } },
             { addon = "Ayije_CDM",                label = "Ayije CDM",                  targets = { "EllesmereUICooldownManager", "EllesmereUIResourceBars" } },
-            { addon = "MythicPlusTimer",          label = "Mythic Plus Timer",          targets = { "EllesmereUIMythicTimer" } },
-            { addon = "WarpDeplete",              label = "WarpDeplete",                targets = { "EllesmereUIMythicTimer" } },
-            { addon = "MPlusTimer",               label = "MPlusTimer",                 targets = { "EllesmereUIMythicTimer" } },
+            { addon = "MythicPlusTimer",          label = "Mythic Plus Timer",          targets = { "EllesmereUIMythicTimer" },
+              moduleCheck = MPlusTimerOn, message = MPlusTimerMsg("Mythic Plus Timer") },
+            { addon = "WarpDeplete",              label = "WarpDeplete",                targets = { "EllesmereUIMythicTimer" },
+              moduleCheck = MPlusTimerOn, message = MPlusTimerMsg("WarpDeplete") },
+            { addon = "MPlusTimer",               label = "MPlusTimer",                 targets = { "EllesmereUIMythicTimer" },
+              moduleCheck = MPlusTimerOn, message = MPlusTimerMsg("MPlusTimer") },
             { addon = "ChonkyCharacterSheet",     label = "Chonky Character Sheet",     targets = { "EllesmereUIBlizzardSkin" },
               moduleCheck = function() return BlizzardSkinSubEnabled("themedCharacterSheet") end,
               message = "Chonky Character Sheet conflicts with the EllesmereUI's Character Sheet. Disable either Chonky or the Character Sheet skin in Blizzard UI Enhanced settings." },

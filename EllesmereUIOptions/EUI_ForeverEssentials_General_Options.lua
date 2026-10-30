@@ -10,16 +10,17 @@ if not EllesmereUI._ModuleNS["EllesmereUIForeverEssentials"] then return end  --
 -------------------------------------------------------------------------------
 --  NAME FORMAT: one place for every Name Format in the suite, as two checkbox
 --  dropdowns over the same module rows: a box shows that part of the name, so
---  First Name alone = first names, Last Name alone = last names, both = First
---  and Last. A name always shows, so a row's last checked box stays checked.
+--  First Name alone = first names, Last Name alone = last names, both = Full
+--  Name. A name always shows, so a row's last checked box stays checked.
 --  Each row is a WRITE-THROUGH MIRROR, as on Global Settings > Textures: it
 --  reads and writes the module's OWN keys and calls the module's own apply, so
 --  nothing is stored here and each module's page shows the same setting. A row
 --  over several keys (every unit frame text; raid and party) reads checked in
---  neither while they differ, and a click sets them all. A module that is off
---  has no row.
+--  neither while they differ, as does a module set to Abbreviated or a
+--  Character Count (its own page sets those), and a click sets them all. A
+--  module that is off has no row.
 -------------------------------------------------------------------------------
--- A saved Name Format as a row value ("full" = First and Last), and back (nil).
+-- A saved Name Format as a row value ("full" = Full Name), and back (nil).
 local function ModeOf(v) return (v == nil or v == "full") and "full" or v end
 local function Stored(v) return (v ~= "full") and v or nil end
 -- One value while every input agrees, "mixed" once two differ (nil: none yet).
@@ -39,7 +40,6 @@ local function NameFormatSources()
     local uf = MNS("EllesmereUIUnitFrames")
     local slots = uf and uf.db and uf.UF_NAME_FORMAT_SLOTS
     if slots then
-        local hasName = uf.UF_HAS_NAME
         list[#list + 1] = { text = "Unit Frames", tooltip = "Every unit frame text that shows a name.",
             get = function()
                 local p, shown, all = uf.db.profile, nil, nil
@@ -48,8 +48,15 @@ local function NameFormatSources()
                     local s = p[e.unit]
                     if s and uf.GetUnitFrameSource(e.unit) == "eui" then
                         local m = ModeOf(s[e.format])
-                        all = Merge(all, m)
-                        if hasName[s[e.content]] and (not e.btb or s.bottomTextBar) then
+                        -- A power text without Custom never names, so it does
+                        -- not count toward the fallback either.
+                        if not e.power or s[e.content] == "custom" then all = Merge(all, m) end
+                        -- A power text shows while its position is set and, under a
+                        -- stock style, Hide Power Bar leaves it (ApplyPowerPercentText).
+                        local powerShown = not e.power or ((s[e.power] or "none") ~= "none"
+                            and not (uf.UF_Blizz() and uf.UF_IsMainSettings(s) and uf.UF_StockHidesPower(s)))
+                        if uf.UF_ContentShowsName(s[e.content], s[e.custom]) and (not e.btb or s.bottomTextBar)
+                           and powerShown then
                             shown = Merge(shown, m)
                         end
                     end
@@ -90,8 +97,9 @@ local function NameFormatSources()
             end }
     end
 
-    -- Nameplates: the enemy name and Target of Target slots (a pick sets every
-    -- slot's key, so a text moved later keeps it), then the friendly players.
+    -- Nameplates: the enemy name, Target of Target and Custom slots showing a name
+    -- or a target (a pick sets every slot's key, so a text moved later keeps it),
+    -- then the friendly players.
     local np = MNS("EllesmereUINameplates")
     if np and np.db then
         local slotKeys, formatKey = np.textSlotKeys, {}
@@ -102,6 +110,13 @@ local function NameFormatSources()
                 local nameSlot, totSlot = np.FindNameSlot(), np._npToTSlot
                 if nameSlot then m = ModeOf(p[formatKey[nameSlot]]) end
                 if totSlot then m = Merge(m, ModeOf(p[formatKey[totSlot]])) end
+                for i = 1, #slotKeys do
+                    local slot = slotKeys[i]
+                    local parsed = p[slot] == "custom" and np.NP_CustomParse(slot)
+                    if parsed and (parsed.has.name or parsed.has.target) then
+                        m = Merge(m, ModeOf(p[formatKey[slot]]))
+                    end
+                end
                 if not m then
                     for i = 1, #slotKeys do m = Merge(m, ModeOf(p[formatKey[slotKeys[i]]])) end
                 end
