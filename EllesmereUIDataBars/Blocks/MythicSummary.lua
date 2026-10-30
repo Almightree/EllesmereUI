@@ -29,9 +29,10 @@ local BlockColorOf     = K.BlockColorOf
 --  M+ SUMMARY (newest Run Summary record; click opens it like /ov, the
 --  tooltip lists every stored run, Right Click clears them)
 --
---  Runs are stored by Mythic+ Tools, which calls EllesmereUI.OnMythicRunsChanged
---  when one is added or the history is cleared. The hook is set only while a
---  block is enabled, so this registers no events.
+--  Runs are stored by Mythic+ Tools (EllesmereUI._MythicRuns), which calls its
+--  OnChanged when one is added or the history is cleared. The hook is set only
+--  while a block is enabled and cleared with the last one, so this registers
+--  no events.
 -------------------------------------------------------------------------------
 local liveInsts = {}
 
@@ -39,9 +40,15 @@ local function OnRunsChanged()
     for inst in pairs(liveInsts) do inst:Refresh() end
 end
 
+-- Bars are built at login, after Mythic+ Tools has loaded.
+local function SyncRunsHook()
+    local mr = EllesmereUI._MythicRuns
+    if mr then mr.OnChanged = next(liveInsts) and OnRunsChanged or nil end
+end
+
 local function Runs()
-    local get = EllesmereUI.GetMythicRuns
-    return get and get()
+    local mr = EllesmereUI._MythicRuns
+    return mr and mr.Get()
 end
 
 local function LatestRun()
@@ -72,7 +79,8 @@ local function RunTime(rec)
 end
 
 local function ConfirmClear()
-    local clear = EllesmereUI.ClearMythicRuns
+    local mr = EllesmereUI._MythicRuns
+    local clear = mr and mr.Clear
     if not clear then return end
     EllesmereUI:ShowConfirmPopup({
         title = "Clear Run History",
@@ -206,12 +214,13 @@ ns.BlockFactories.mplussummary = function(blockCfg, slot, content, barCtx)
 
     function inst:Enable()
         liveInsts[self] = true
-        EllesmereUI.OnMythicRunsChanged = OnRunsChanged
+        SyncRunsHook()
         self:Refresh()
     end
 
     function inst:Disable()
         liveInsts[self] = nil
+        SyncRunsHook()
         ns.Tip_Hide(button)
         content:Hide()
     end
@@ -227,6 +236,7 @@ ns.BlockFactories.mplussummary = function(blockCfg, slot, content, barCtx)
     function inst:Destroy()
         self._dead = true
         liveInsts[self] = nil
+        SyncRunsHook()
         content:Hide()
     end
 

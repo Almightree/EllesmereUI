@@ -597,7 +597,7 @@ ns.NICK_ADDON = addonName:find("Standalone") and addonName or "EllesmereUI"
 
 -- Resolve a unit's display name through MethodInternal's authoritative surface
 -- choice for known Method players, then the normal provider order: NSAPI ->
--- TimelineReminders -> LiquidAPI, then the raw unit name. Each
+-- TimelineReminders -> LiquidAPI -> CustomNames, then the raw unit name. Each
 -- external call is pcall-wrapped so a misbehaving API can never break names.
 --
 -- SECRET-SAFE: an enemy unit's UnitName is secret in protected content and any Lua op
@@ -731,7 +731,7 @@ do
     end)
 end
 
--- Provider callbacks. MethodInternal uses the addon-loaded callback; NSAPI and
+-- Provider callbacks. MethodInternal and CustomNames use the addon-loaded callback; NSAPI and
 -- TimelineReminders retry on PLAYER_LOGIN/PLAYER_ENTERING_WORLD. Registrant key MUST
 -- be "EllesmereUIUnitFrames", not "EllesmereUI": Raid Frames owns that key and
 -- CallbackHandler keys registrations by it, so reuse would clobber one module. The
@@ -783,22 +783,26 @@ do
     end
     EventUtil.ContinueOnAddOnLoaded("MethodInternal", RegisterMethodInternal)
     -- CustomNames fires one callback per character, so a BattleTag rename or an
-    -- import arrives as a burst: repaint once on the next frame.
-    EventUtil.ContinueOnAddOnLoaded("CustomNames", function()
-        local CN = LibStub and LibStub("CustomNames", true)
-        if not (CN and CN.UnitName and CN.RegisterCallback) or ns._customNames then return end
-        ns._customNames = CN
-        local pending
-        local function QueueRefresh()
-            if pending then return end
-            pending = true
-            C_Timer.After(0, function() pending = nil; RefreshNames() end)
-        end
-        CN.RegisterCallback("EllesmereUIUnitFrames", "Name_Added", QueueRefresh)
-        CN.RegisterCallback("EllesmereUIUnitFrames", "Name_Update", QueueRefresh)
-        CN.RegisterCallback("EllesmereUIUnitFrames", "Name_Removed", QueueRefresh)
-        RefreshNames()
-    end)
+    -- import arrives as a burst: repaint once on the next frame. Nothing waits for
+    -- it unless it is installed and enabled for this character.
+    if C_AddOns.IsAddOnLoaded("CustomNames") or C_AddOns.IsAddOnLoadable("CustomNames") then
+        EventUtil.ContinueOnAddOnLoaded("CustomNames", function()
+            local CN = LibStub("CustomNames", true)
+            if not (CN and CN.UnitName and CN.RegisterCallback) or ns._customNames then return end
+            ns._customNames = CN
+            local pending
+            local function Flush() pending = nil; RefreshNames() end
+            local function QueueRefresh()
+                if pending then return end
+                pending = true
+                C_Timer.After(0, Flush)
+            end
+            CN.RegisterCallback("EllesmereUIUnitFrames", "Name_Added", QueueRefresh)
+            CN.RegisterCallback("EllesmereUIUnitFrames", "Name_Update", QueueRefresh)
+            CN.RegisterCallback("EllesmereUIUnitFrames", "Name_Removed", QueueRefresh)
+            RefreshNames()
+        end)
+    end
 end
 
 -- "Name > Target" is built from FOUR tags so the (possibly SECRET) target name is never

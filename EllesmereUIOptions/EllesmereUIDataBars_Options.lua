@@ -1476,7 +1476,7 @@ initFrame:SetScript("OnEvent", function(self)
                 EllesmereUI.MakeBorder(menu, 1, 1, 1, DDS.BRD_A, PP)
                 menu._rows = {}
                 local mH = 4
-                for _, t in ipairs(ns.BLOCK_TYPES) do
+                for _, t in ipairs(ns.OfferedBlockTypes()) do
                     local item = CreateFrame("Button", nil, menu)
                     item:SetHeight(ITEM_H)
                     item:SetPoint("TOPLEFT", menu, "TOPLEFT", 1, -mH)

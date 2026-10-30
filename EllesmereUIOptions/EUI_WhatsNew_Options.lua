@@ -7,6 +7,13 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 local CreateFrame = EllesmereUI._Pool.CreateFrame
 local PoolKeep, PoolGen = EllesmereUI._Pool.Keep, EllesmereUI._Pool.Gen
 
+-- An accent-coloured piece repaints itself (paint(r, g, b)) when the accent
+-- changes. Keyed by the piece: the page pool forgets the entry when it resets
+-- it, and the kept Legends page registers each piece once.
+local function OnAccent(obj, paint)
+    EllesmereUI.RegAccent({ type = "callback", obj = obj, fn = paint })
+end
+
 -------------------------------------------------------------------------------
 --  What's New page -- one expandable card per patch (the shared module card),
 --  newest first. A card's header counts the patch's major features,
@@ -29,12 +36,6 @@ function EllesmereUI._BuildWhatsNewPage(pageName, parent, yOffset)
     local W   = EllesmereUI.Widgets
     local MakeFont   = EllesmereUI.MakeFont
     local MakeBorder = EllesmereUI.MakeBorder
-
-    -- An accent-coloured piece repaints itself (paint(r, g, b)) when the accent
-    -- changes. Keyed by the piece: the page pool forgets the entry when it resets it.
-    local function OnAccent(obj, paint)
-        EllesmereUI.RegAccent({ type = "callback", obj = obj, fn = paint })
-    end
 
     -- This page is a free-form feed, not a DualRow split layout.
     parent._showRowDivider = nil
@@ -744,12 +745,6 @@ function EllesmereUI._BuildLegendsPage(pageName, parent, yOffset)
     local L   = EllesmereUI.L
     local MakeFont   = EllesmereUI.MakeFont
     local MakeBorder = EllesmereUI.MakeBorder
-
-    -- An accent-coloured piece repaints itself (paint(r, g, b)) when the accent
-    -- changes. The page is built once and kept, so each piece registers once.
-    local function OnAccent(obj, paint)
-        EllesmereUI.RegAccent({ type = "callback", obj = obj, fn = paint })
-    end
 
     local data   = EllesmereUI._LEGENDS or {}
     local y      = yOffset - 14
