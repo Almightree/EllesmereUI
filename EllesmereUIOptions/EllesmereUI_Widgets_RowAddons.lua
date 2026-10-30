@@ -47,11 +47,43 @@ local function BuildInlineToggle(opts)
     return toggle
 end
 
+-- Accent glyph buttons a page builds itself (the eye preview toggles, the
+-- nameplate slot cogs): it marks the glyph with AccentGlyph(btn, tex) once and
+-- sets the button's alpha through SetGlyphAlpha(btn, a) with the plain glyph
+-- values (0.15 disabled, 0.4 idle, 0.7 hovered). Like the accent cogs below:
+-- the accent, 0.15 brighter, white while disabled, following accent changes.
+local function PaintGlyph(btn)
+    local a, tex = btn._glyphA or 0.4, btn._glyphTex
+    local off = a <= 0.15
+    btn:SetAlpha(off and a or math.min(1, a + 0.15))
+    if not tex then return end
+    if off then tex:SetVertexColor(1, 1, 1) else tex:SetVertexColor(EllesmereUI.GetAccentColor()) end
+end
+
+function EllesmereUI.SetGlyphAlpha(btn, a)
+    btn._glyphA = a
+    PaintGlyph(btn)
+end
+
+function EllesmereUI.AccentGlyph(btn, tex)
+    btn._glyphTex = tex
+    PaintGlyph(btn)
+    -- Keyed by the texture: the page pool forgets the entry when it resets it.
+    EllesmereUI.RegAccent({ type = "callback", obj = tex, fn = function() PaintGlyph(btn) end })
+end
+
 -- Inline cog button on a DualRow half-region, left of its control (or of the last inline item). Returns cogBtn, showFn; nil during the search prebuild.
 -- opts: BuildCogPopup's own opts (title, rows, captureRegion, minWidth, ...) or show(btn) + optional isOpen(btn) for a custom popup; icon, size (26), gap (8), anchorTo,
 --   relPoint (the anchor's side the cog's right edge sits on, LEFT; a host that is not a DualRow half passes anchorTo = itself, relPoint = "RIGHT", gap = 0),
 --   chain (default true: anchors to and becomes region._lastInline), tip, disabled + disabledTooltip/rawTooltip/requireState (as ResolveDisabledTip; default: the host control's).
 -- Alpha: 0.15 disabled, 0.4 idle, 0.7 hovered or while its popup is open. Disabled blocks the click and shows the requirement tooltip.
+-- The cog, directions and resize glyphs wear the accent (white while disabled) and follow its changes,
+-- a little brighter than the white glyphs: 0.55 idle, 0.85 hovered or open.
+local ACCENT_COG_ICONS = {
+    [EllesmereUI.COGS_ICON] = true,
+    [EllesmereUI.DIRECTIONS_ICON] = true,
+    [EllesmereUI.RESIZE_ICON] = true,
+}
 local function BuildInlineCog(rgn, opts)
     if EllesmereUI._prebuilding then return end
     -- A disabled cog with no tooltip of its own explains itself with its host control's requirement.
@@ -68,8 +100,10 @@ local function BuildInlineCog(rgn, opts)
     btn:SetFrameLevel(rgn:GetFrameLevel() + 5)
     local tex = btn:CreateTexture(nil, "OVERLAY")
     tex:SetAllPoints()
-    tex:SetTexture(opts.icon or EllesmereUI.COGS_ICON)
+    local iconPath = opts.icon or EllesmereUI.COGS_ICON
+    tex:SetTexture(iconPath)
     btn._icon = tex
+    local accentIcon = not opts.paint and ACCENT_COG_ICONS[iconPath]
 
     local block
     if opts.disabled then
@@ -96,10 +130,18 @@ local function BuildInlineCog(rgn, opts)
         end
         -- opts.paint(btn, off, hot) paints the states itself (the unlock jump);
         -- a cog's own look is its alpha.
-        if opts.paint then opts.paint(btn, off, hot) else btn:SetAlpha(off and 0.15 or (hot and 0.7 or 0.4)) end
+        if opts.paint then opts.paint(btn, off, hot)
+        elseif accentIcon then btn:SetAlpha(off and 0.15 or (hot and 0.85 or 0.55))
+        else btn:SetAlpha(off and 0.15 or (hot and 0.7 or 0.4)) end
+        if accentIcon then
+            if off then tex:SetVertexColor(1, 1, 1) else tex:SetVertexColor(EllesmereUI.GetAccentColor()) end
+        end
         if block then block:SetShown(off and true or false) end
     end
     btn._euiCogState = State
+    -- Repaints on accent changes (opts.paint reads the accent too: the unlock jump).
+    -- Keyed by the texture: the page pool forgets the entry when it resets it.
+    if accentIcon or opts.paint then EllesmereUI.RegAccent({ type = "callback", obj = tex, fn = function() State() end }) end
 
     btn:SetScript("OnEnter", function(self)
         State(true)
