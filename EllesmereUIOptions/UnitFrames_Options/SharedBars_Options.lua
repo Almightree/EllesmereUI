@@ -3100,7 +3100,7 @@ function ns.UFO_BuildAbsorbsHealsSection(parent, y, ctx)
     if _supportsAbsorbs then
     sharedAbsorbsHeader, h = W:SectionHeader(parent, "ABSORBS AND HEALS", y); y = y - h
 
-    -- Names and orders live on ns (EllesmereUIUnitFrames.lua, shared with the
+    -- Names and orders live on ns (EUI_UnitFrames_Absorb.lua, shared with the
     -- Textures page tile); fresh copies here because the SharedMedia tail
     -- below is appended into them. Shield (regular) absorb order; heal absorb
     -- uses its own (it adds the two "Outlined" variants on top).
@@ -3142,7 +3142,7 @@ function ns.UFO_BuildAbsorbsHealsSection(parent, y, ctx)
 
     -- Effective absorb opacity: absorbOpacity once set, otherwise the
     -- pre-split behavior (clean -> absorbCleanAlpha, other styles 80).
-    -- Must match GetAbsorbOpacity in EllesmereUIUnitFrames.lua.
+    -- Must match GetAbsorbOpacity in EUI_UnitFrames_Absorb.lua.
     local function EffAbsorbOpacity()
         local v = SValSupported("absorbOpacity", nil)
         if v then return v end
