@@ -463,6 +463,26 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
                         ss[key] = false
                     end
                 end
+                local function AudioChoiceValue(value, noneValue)
+                    if value == "tts" then return "__tts" end
+                    if value == "none" then return noneValue end
+                    return value
+                end
+                local function SetAudioOwn(key, value)
+                    local old = rawget(ss, key)
+                    SetOwn(key, AudioChoiceValue(value))
+                    local current = rawget(ss, key)
+                    if old ~= current then
+                        ns._cdmAudioRevision = (ns._cdmAudioRevision or 0) + 1
+                        if current and current ~= false then
+                            if key == "cdReadySoundKey" then
+                                ns._cdmAnyCdReadySound = true
+                            else
+                                ns._cdmAnyBuffSound = true
+                            end
+                        end
+                    end
+                end
 
                 -----------------------------------------------------------
                 --  "Apply to Bar" machinery (hover strip on flyout items). One table
@@ -551,6 +571,8 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
                 -- the per-spell setters normally arm -- flip the same flags.
                 AB.FlipSessionGates = function(t)
                     if not t then return end
+                    if ns.EffectiveAudioKey(t, "buffActiveSoundKey") then ns._cdmAnyBuffSound = true end
+                    if ns.EffectiveAudioKey(t, "buffLostSoundKey") then ns._cdmAnyBuffSound = true end
                     if t.reverseSwipe then ns._cdmAnyReverseSwipe = true end
                     if t.hideCDSwipe then ns._cdmAnyHideCDSwipe = true end
                     if (tonumber(t.thresholdSeconds) or 0) > 0 then ns._cdmAnyThresholdText = true end
@@ -839,6 +861,15 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
                     -- it per tier and per stamp would make the result depend on sweep order.
                     local temp = {}
                     applyWrite(temp, val)
+                    local function AudioValueChanges(t)
+                        for _, k in ipairs(keys) do
+                            if (k == "buffActiveSoundKey" or k == "buffLostSoundKey"
+                                or k == "cdReadySoundKey") and rawget(t, k) ~= temp[k] then
+                                return true
+                            end
+                        end
+                        return false
+                    end
                     -- A Cooldown State Effect apply first moves a single-value glow on
                     -- every table it stamps or clears into cdStateGlow, so the half of
                     -- the pair it leaves alone keeps its look.
@@ -899,7 +930,11 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
                             -- New tier table: chained results are stale.
                             ns._cdmResGen = (ns._cdmResGen or 0) + 1
                         end
+                        local audioChanged = AudioValueChanges(abs)
                         stamp(abs)
+                        if audioChanged then
+                            ns._cdmAudioRevision = (ns._cdmAudioRevision or 0) + 1
+                        end
                         AB.FlipSessionGates(abs)
                         local spAll = ns.GetActiveSpecProfiles and ns.GetActiveSpecProfiles()
                         if spAll then
@@ -923,7 +958,11 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
                         -- tier holds: this tier keeps the glow it showed, as saved, as
                         -- a menu pick does.
                         local glowBefore = splitCd and ns.CdStateGlowOf(bs) or nil
+                        local audioChanged = AudioValueChanges(bs)
                         stamp(bs)
+                        if audioChanged then
+                            ns._cdmAudioRevision = (ns._cdmAudioRevision or 0) + 1
+                        end
                         if glowBefore and rawget(bs, "cdStateGlow") == nil and ns.CdStateGlowOf(bs) == nil then
                             bs.cdStateGlow = glowBefore
                         end
@@ -3222,7 +3261,7 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
                             function() return ns.AudioSelectionChoice(ss, "buffActiveSoundKey") end,
                             function(v)
                                 EnsureSS()
-                                ns.SetAudioSelectionChoice(ss, "buffActiveSoundKey", v)
+                                SetAudioOwn("buffActiveSoundKey", v)
                                         end,
                             function() return ss.buffActiveSoundKey == nil end,
                             function(si, item) AddSoundPreview(si, item, "buffActiveTtsText", "gain") end,
@@ -3233,7 +3272,7 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
                               end,
                               apply = { keys = { "buffActiveSoundKey" },
                                         write = function(t, v)
-                                            ns.SetAudioSelectionChoice(t, "buffActiveSoundKey", v, false)
+                                            t.buffActiveSoundKey = AudioChoiceValue(v, false)
                                         end } })
                         AddAudioTextRow("Edit TTS Message", "buffActiveSoundKey", "buffActiveTtsText", "gain")
                     end
@@ -3243,7 +3282,7 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
                             function() return ns.AudioSelectionChoice(ss, "buffLostSoundKey") end,
                             function(v)
                                 EnsureSS()
-                                ns.SetAudioSelectionChoice(ss, "buffLostSoundKey", v)
+                                SetAudioOwn("buffLostSoundKey", v)
                                         end,
                             function() return ss.buffLostSoundKey == nil end,
                             function(si, item) AddSoundPreview(si, item, "buffLostTtsText", "loss") end,
@@ -3254,7 +3293,7 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
                               end,
                               apply = { keys = { "buffLostSoundKey" },
                                         write = function(t, v)
-                                            ns.SetAudioSelectionChoice(t, "buffLostSoundKey", v, false)
+                                            t.buffLostSoundKey = AudioChoiceValue(v, false)
                                         end } })
                         AddAudioTextRow("Edit TTS Message", "buffLostSoundKey", "buffLostTtsText", "loss")
                     end
@@ -3727,8 +3766,11 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
                     MakeSubnavRow("Audio Effect on CD Ready", CDR_ITEMS,
                         function() return ns.AudioSelectionChoice(cas, "cdReadySoundKey") end,
                         function(v)
-                            local e = EnsureCAS()
-                            ns.SetAudioSelectionChoice(e, "cdReadySoundKey", v)
+                            local old = rawget(cas, "cdReadySoundKey")
+                            SetCasOwn("cdReadySoundKey", AudioChoiceValue(v))
+                            if old ~= rawget(cas, "cdReadySoundKey") then
+                                ns._cdmAudioRevision = (ns._cdmAudioRevision or 0) + 1
+                            end
                                     if cdrTtsTextRow then
                                 local enabled = v == "tts"
                                 cdrTtsTextRow:SetShown(enabled)
@@ -4428,7 +4470,7 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
                     function() return ns.AudioSelectionChoice(ss, "cdReadySoundKey") end,
                     function(v)
                         EnsureSS()
-                        ns.SetAudioSelectionChoice(ss, "cdReadySoundKey", v)
+                        SetAudioOwn("cdReadySoundKey", v)
                             if cdReadyTtsTextRow then
                             local enabled = v == "tts"
                             cdReadyTtsTextRow:SetShown(enabled)
@@ -4449,7 +4491,7 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
                       end,
                       apply = { keys = { "cdReadySoundKey" },
                                 write = function(t, v)
-                                    ns.SetAudioSelectionChoice(t, "cdReadySoundKey", v, false)
+                                    t.cdReadySoundKey = AudioChoiceValue(v, false)
                                 end } })
                 local ttsTextRow = CreateFrame("Button", nil, inner)
                 ttsTextRow._cdmTtsEditor = true

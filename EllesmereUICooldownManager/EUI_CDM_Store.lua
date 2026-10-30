@@ -1018,19 +1018,6 @@ function ns.RescanCdReadySoundFlag()
             return true
         end
     end)
-    if not ns._cdmAnyCdReadySound then
-        local profile = ECME and ECME.db and ECME.db.profile
-        local customActive = profile and profile.customActiveStates
-        if type(customActive) == "table" then
-            for _, settings in pairs(customActive) do
-                if type(settings) == "table" and settings.cdReadySoundKey
-                   and settings.cdReadySoundKey ~= "none" then
-                    ns._cdmAnyCdReadySound = true
-                    break
-                end
-            end
-        end
-    end
 end
 
 -- "Replace with Buff" gate: set ns._cdmAnyBuffReplace once if any saved cd/utility
