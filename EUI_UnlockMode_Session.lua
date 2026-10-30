@@ -1279,7 +1279,7 @@ local function DoClose(closeAction)
         local objTracker = _G.ObjectiveTrackerFrame
         if objTracker then
             objTracker:SetAlpha(1)
-            local wasEnabled = objTracker._eabMouseWasEnabled
+            local wasEnabled = EllesmereUI._GetFFD(objTracker).unlockMouseWasEnabled
             if objTracker.EnableMouse then
                 pcall(objTracker.EnableMouse, objTracker, wasEnabled and true or false)
             end
@@ -1459,8 +1459,14 @@ end
 --- on a spec transition: movers, snapshots, and pending edits all belong to the
 --- OUTGOING spec's layout, so saving them against the incoming spec would corrupt both baseline and spec-override data.
 function EllesmereUI.ForceCloseUnlockDiscard()
+    -- A combat-suspended session is still open (it keeps its snapshots for the
+    -- resume): reopen its state so the close below ends it.
+    if UM.combatSuspended then
+        UM.combatSuspended = false
+        UM.isUnlocked = true
+    end
     if not UM.isUnlocked then return end
-    print("|cffff6060[EllesmereUI]|r Spec changed: Unlock Mode closed, unsaved layout changes discarded.")
+    EllesmereUI.PrintError(EllesmereUI.L("Layout changed: Unlock Mode closed, unsaved layout changes discarded."))
     pendingAfterClose = nil
     -- Unconditional: RevertPositions only runs below when positions changed,
     -- but the value-edit snapshot must never survive a discard-close.
@@ -1974,11 +1980,14 @@ function ns.OpenUnlockMode()
     local objTracker = _G.ObjectiveTrackerFrame
     if objTracker and objTracker:IsShown() then
         UM.objTrackerWasVisible = true
-        objTracker._eabMouseWasEnabled = objTracker:IsMouseEnabled()
+        -- Our state for Blizzard's tracker lives in the frame data table,
+        -- never on the frame itself.
+        local otfd = EllesmereUI._GetFFD(objTracker)
+        otfd.unlockMouseWasEnabled = objTracker:IsMouseEnabled()
         objTracker:SetAlpha(0)
         if objTracker.EnableMouse then pcall(objTracker.EnableMouse, objTracker, false) end
-        if not objTracker._eabUnlockAlphaHooked then
-            objTracker._eabUnlockAlphaHooked = true
+        if not otfd.unlockAlphaHooked then
+            otfd.unlockAlphaHooked = true
             hooksecurefunc(objTracker, "SetAlpha", function(self, a)
                 if UM.isUnlocked and a > 0 then
                     self:SetAlpha(0)
