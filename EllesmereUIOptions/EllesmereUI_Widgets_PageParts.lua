@@ -14,6 +14,12 @@ local EllesmereUI = _G.EllesmereUI
 local CreateFrame = EllesmereUI._Pool.CreateFrame
 
 local ttsTextPopup
+local ttsPopupOnHideRegistered
+local function CDMTTSProfile()
+    local cdm = EllesmereUI._ModuleNS and EllesmereUI._ModuleNS.EllesmereUICooldownManager
+    return cdm and cdm.ECME and cdm.ECME.db and cdm.ECME.db.profile, cdm
+end
+
 function EllesmereUI.ShowTTSTextPopup(title, initial, defaultText, onSave, onPreview)
     if not ttsTextPopup then
         local dimmer = CreateFrame("Frame", nil, UIParent)
@@ -25,7 +31,7 @@ function EllesmereUI.ShowTTSTextPopup(title, initial, defaultText, onSave, onPre
         shade:SetAllPoints(); shade:SetColorTexture(0, 0, 0, 0.55)
 
         local popup = CreateFrame("Frame", nil, dimmer)
-        popup:SetSize(300, 164)
+        popup:SetSize(300, 232)
         popup:SetPoint("CENTER")
         popup:SetFrameStrata("FULLSCREEN_DIALOG")
         popup:SetFrameLevel(dimmer:GetFrameLevel() + 2)
@@ -61,6 +67,96 @@ function EllesmereUI.ShowTTSTextPopup(title, initial, defaultText, onSave, onPre
         EllesmereUI.MakeBorder(box, 1, 1, 1, 0.14, EllesmereUI.PanelPP)
         popup._box = box
 
+        local voiceBtn = CreateFrame("Button", nil, popup)
+        voiceBtn:SetSize(260, 24)
+        voiceBtn:SetPoint("TOPLEFT", box, "BOTTOMLEFT", 0, -8)
+        local voiceLabel = voiceBtn:CreateFontString(nil, "OVERLAY")
+        voiceLabel:SetFont(font, 11, "")
+        voiceLabel:SetPoint("LEFT", voiceBtn, "LEFT", 6, 0)
+        voiceLabel:SetJustifyH("LEFT")
+        voiceLabel:SetWordWrap(false)
+        voiceLabel:SetMaxLines(1)
+        voiceLabel:SetTextColor(1, 1, 1, 0.9)
+        local voiceArrow = EllesmereUI.MakeDropdownArrow(voiceBtn, 12, EllesmereUI.PanelPP)
+        voiceArrow:SetPoint("RIGHT", voiceBtn, "RIGHT", -4, 0)
+        voiceLabel:SetPoint("RIGHT", voiceArrow, "LEFT", -6, 0)
+        local voiceMenu, refreshVoice
+        local voiceValues, voiceOrder = EllesmereUI.BuildTTSVoiceDropdownValues(function(voiceID)
+            local _, cdm = CDMTTSProfile()
+            if cdm and cdm.SpeakTTS then
+                cdm.SpeakTTS("This is a voice preview", voiceID, ttsTextPopup._ttsPrefsVolume)
+            end
+        end)
+        voiceValues._menuOpts.parent = popup
+        local function CurrentVoice()
+            return ttsTextPopup._ttsPrefsVoiceID or 0
+        end
+        local function RefreshVoice()
+            if refreshVoice then refreshVoice() end
+            voiceLabel:SetText(EllesmereUI.L("TTS Voice") .. ": " .. (voiceValues[CurrentVoice()] or voiceValues[0]))
+        end
+        popup._refreshVoice = RefreshVoice
+        popup._voiceLabel = voiceLabel
+        voiceBtn:SetScript("OnClick", function()
+            if not voiceMenu then
+                voiceMenu, _, refreshVoice = EllesmereUI.BuildDropdownMenu(voiceBtn, 260,
+                    voiceOrder, voiceValues, CurrentVoice, function(value)
+                        ttsTextPopup._ttsPrefsVoiceID = value
+                        RefreshVoice()
+                    end, voiceLabel, "regular")
+                voiceMenu:SetFrameStrata("FULLSCREEN_DIALOG")
+                voiceMenu:SetFrameLevel(popup:GetFrameLevel() + 10)
+            end
+            if voiceMenu:IsShown() then voiceMenu:Hide()
+            else RefreshVoice(); voiceMenu:Show() end
+        end)
+        popup._getVoiceMenu = function() return voiceMenu end
+        local function CloseTTSPopupStep()
+            if voiceMenu and voiceMenu:IsShown() then
+                voiceMenu:Hide()
+            else
+                dimmer:Hide()
+            end
+        end
+        if EllesmereUI.RegisterEscapeClose then
+            EllesmereUI.RegisterEscapeClose(dimmer, {
+                notOwned = true,
+                onEscape = CloseTTSPopupStep,
+            })
+        end
+        if EllesmereUI.RegisterOnHide and not ttsPopupOnHideRegistered then
+            EllesmereUI:RegisterOnHide(function()
+                if ttsTextPopup then ttsTextPopup._dimmer:Hide() end
+            end)
+            ttsPopupOnHideRegistered = true
+        end
+
+        local volumeLabel = popup:CreateFontString(nil, "OVERLAY")
+        volumeLabel:SetFont(font, 11, "")
+        volumeLabel:SetPoint("TOPLEFT", voiceBtn, "BOTTOMLEFT", 0, -5)
+        volumeLabel:SetTextColor(1, 1, 1, 0.9)
+        local volumeSlider = CreateFrame("Slider", nil, popup)
+        volumeSlider:SetSize(165, 14)
+        volumeSlider:SetPoint("LEFT", volumeLabel, "RIGHT", 8, 0)
+        volumeSlider:SetOrientation("HORIZONTAL")
+        volumeSlider:SetMinMaxValues(0, 100)
+        volumeSlider:SetValueStep(5)
+        volumeSlider:SetObeyStepOnDrag(true)
+        volumeSlider:SetThumbTexture("Interface\\Buttons\\UI-SliderBar-Button-Horizontal")
+        local track = volumeSlider:CreateTexture(nil, "BACKGROUND")
+        track:SetColorTexture(0.1, 0.1, 0.1, 1)
+        track:SetPoint("LEFT", volumeSlider, "LEFT", 0, 0)
+        track:SetPoint("RIGHT", volumeSlider, "RIGHT", 0, 0)
+        track:SetHeight(4)
+        popup._initializingVolume = false
+        volumeSlider:SetScript("OnValueChanged", function(_, value)
+            local rounded = math.floor(value + 0.5)
+            if not popup._initializingVolume then popup._ttsPrefsVolume = rounded end
+            volumeLabel:SetText(EllesmereUI.L("TTS Volume") .. ": " .. rounded)
+        end)
+        popup._volumeSlider = volumeSlider
+        popup._volumeLabel = volumeLabel
+
         local function Button(label, x, click, accent)
             local b = CreateFrame("Button", nil, popup)
             b:SetSize(78, 25)
@@ -80,24 +176,45 @@ function EllesmereUI.ShowTTSTextPopup(title, initial, defaultText, onSave, onPre
         end
         Button("Preview", -88, function()
             local text = box:GetText()
+            local voiceID = popup._ttsPrefsVoiceID or 0
+            local volume = popup._ttsPrefsVolume or 100
             if popup._onPreview then
-                popup._onPreview(text ~= "" and text or popup._defaultText)
+                popup._onPreview(text ~= "" and text or popup._defaultText, voiceID, volume)
             else
-                EllesmereUI.SpeakText(text ~= "" and text or popup._defaultText, 0, 100)
+                local _, cdm = CDMTTSProfile()
+                if cdm and cdm.SpeakTTS then
+                    cdm.SpeakTTS(text ~= "" and text or popup._defaultText, voiceID, volume)
+                else
+                    EllesmereUI.SpeakText(text ~= "" and text or popup._defaultText, voiceID, volume)
+                end
             end
         end, false)
         Button("Cancel", 0, function() dimmer:Hide() end, false)
+        local function CommitTTSPrefs()
+            local profile = popup._ttsPrefsProfile
+            if profile then
+                profile.ttsVoiceID = popup._ttsPrefsVoiceID
+                profile.ttsVolume = popup._ttsPrefsVolume
+            end
+        end
         Button("Save", 88, function()
+            CommitTTSPrefs()
             dimmer:Hide()
             if popup._onSave then popup._onSave(box:GetText() or "") end
         end, true)
         box:SetScript("OnEnterPressed", function()
+            CommitTTSPrefs()
             dimmer:Hide()
             if popup._onSave then popup._onSave(box:GetText() or "") end
         end)
-        box:SetScript("OnEscapePressed", function() dimmer:Hide() end)
+        box:SetScript("OnEscapePressed", CloseTTSPopupStep)
         dimmer:SetScript("OnMouseDown", function(self)
-            if not popup:IsMouseOver() then self:Hide() end
+            local menu = popup._getVoiceMenu and popup._getVoiceMenu()
+            if not popup:IsMouseOver() and not (menu and menu:IsMouseOver()) then self:Hide() end
+        end)
+        dimmer:SetScript("OnHide", function()
+            local menu = popup._getVoiceMenu and popup._getVoiceMenu()
+            if menu then menu:Hide() end
         end)
         popup._dimmer = dimmer
         ttsTextPopup = popup
@@ -107,7 +224,20 @@ function EllesmereUI.ShowTTSTextPopup(title, initial, defaultText, onSave, onPre
     ttsTextPopup._defaultText = defaultText or ""
     ttsTextPopup._onSave = onSave
     ttsTextPopup._onPreview = onPreview
+    local profile = CDMTTSProfile()
+    ttsTextPopup._ttsPrefsProfile = profile
+    ttsTextPopup._ttsPrefsVoiceID = profile and profile.ttsVoiceID or nil
+    ttsTextPopup._ttsPrefsVolume = profile and profile.ttsVolume or nil
+    ttsTextPopup._initializingVolume = true
+    if profile then
+        ttsTextPopup._volumeSlider:SetValue(profile.ttsVolume or 100)
+    end
+    ttsTextPopup._initializingVolume = false
+    ttsTextPopup._volumeLabel:SetText(EllesmereUI.L("TTS Volume") .. ": " .. ((profile and profile.ttsVolume) or 100))
+    ttsTextPopup._refreshVoice()
     ttsTextPopup._dimmer:Show()
+    local voiceMenu = ttsTextPopup._getVoiceMenu()
+    if voiceMenu and voiceMenu:IsShown() then voiceMenu:Hide() end
     ttsTextPopup._box:SetFocus()
 end
 

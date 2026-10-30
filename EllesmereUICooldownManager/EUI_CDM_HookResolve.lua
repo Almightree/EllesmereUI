@@ -107,17 +107,6 @@ local function ResolveSpellSettingsUncached(frame, sid2, sd2, barKey)
     -- Bar tiers: barSettings ("Apply to Bar", per spec) chained to profile-level
     -- bd.barSpellSettings ("Apply to Bar (All Specs)"); nil when neither exists.
     local tier = ns.GetBarTierSettings and ns.GetBarTierSettings(sd2, bk)
-    local fdH = frame and ns._hookFrameData and ns._hookFrameData[frame]
-    local isBuffViewerFrame = frame and (
-        (fdH and fdH._isBuffViewerFrame)
-        or frame._isPlaceholderFrame
-        or frame.viewerFrame == _G.BuffIconCooldownViewer
-        or frame.viewerFrame == _G.BuffBarCooldownViewer)
-    if not bk and isBuffViewerFrame and ns.GetBuffBarTierForSpell then
-        -- Match the id-based buff-edge fallback while the frame has no owning
-        -- bar context yet; a c-key spell record must inherit the same tier mode.
-        tier = ns.GetBuffBarTierForSpell(sid2)
-    end
     -- HOSTED-BUFF detection: buff frame (or inactive placeholder) on a CD/util
     -- bar, FRAME-based not flag-based (same spellID can also be this bar's CD
     -- entry and must keep CD-family resolution). hostedBuffSpellIDs nil = no host.
@@ -129,10 +118,12 @@ local function ResolveSpellSettingsUncached(frame, sid2, sd2, barKey)
     -- entry under the same id to the buff.
     local hostedFrame = false
     if frame and bk and sd2 and sd2.hostedBuffSpellIDs then
+        local fdH = ns._hookFrameData and ns._hookFrameData[frame]
         if (fc0 and fc0.isHostedBuff)
-           or isBuffViewerFrame
+           or (fdH and fdH._isBuffViewerFrame)
            or frame._isPlaceholderFrame
-           then
+           or frame.viewerFrame == _G.BuffIconCooldownViewer
+           or frame.viewerFrame == _G.BuffBarCooldownViewer then
             local bdH = ns.barDataByKey and ns.barDataByKey[bk]
             if bdH and bdH.barType ~= "buffs" and bdH.barType ~= "custom_buff" then
                 hostedFrame = true
@@ -149,13 +140,8 @@ local function ResolveSpellSettingsUncached(frame, sid2, sd2, barKey)
     -- Per-spell entries live in the spec's FAMILY store (travel with the spell
     -- across bars), not the bar. A hosted buff reads the BUFF store keyed off the
     -- FRAME, so a cooldown icon of the same spellID here keeps the CD store.
-    -- The first aura alert may arrive before this frame has a CDM bar context.
-    -- Buff viewer frames still have a reliable family identity, so resolve their
-    -- per-spell/cooldownID records from the buff store while leaving tier nil until
-    -- decoration supplies the owning bar.
-    local settingsBarKey = bk or (isBuffViewerFrame and "buffs")
-    local settings = settingsBarKey and ns.GetSpellSettingsStore
-        and ns.GetSpellSettingsStore(hostedFrame and "buffs" or settingsBarKey)
+    local settings = bk and ns.GetSpellSettingsStore
+        and ns.GetSpellSettingsStore(hostedFrame and "buffs" or bk)
     if not settings or next(settings) == nil then return tier end
 
     local ChainSettings = ns.ChainSettings
@@ -164,14 +150,12 @@ local function ResolveSpellSettingsUncached(frame, sid2, sd2, barKey)
     -- spellID (e.g. Demonic Art vs Diabolic Ritual) yet configure independently
     -- via a "c"..cooldownID key; gated on BuffFamHasCdKey (cached bool), buff frames only.
     if frame then
+        local fdC = ns._hookFrameData and ns._hookFrameData[frame]
         -- Buff frames AND inactive placeholders (Always Show/Keep in Same Place)
         -- share the viewer cooldownID and must resolve the same per-slot entry,
         -- else styling reverts when the placeholder shows; type(cdID)=="number"
         -- excludes preset placeholders (they nil the cooldownID).
-        -- TriggerAuraAppliedAlert can run before DecorateFrame stamps hook-frame
-        -- data onto a newly acquired viewer frame. viewerFrame identity is already
-        -- available then, so the cold gain edge can still resolve its c-key entry.
-        if isBuffViewerFrame then
+        if (fdC and fdC._isBuffViewerFrame) or frame._isPlaceholderFrame then
             local cdID = frame.cooldownID
             if type(cdID) == "number" then
                 if ns.BuffFamHasCdKey and ns.BuffFamHasCdKey(settings) then

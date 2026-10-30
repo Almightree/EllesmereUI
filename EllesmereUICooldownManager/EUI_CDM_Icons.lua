@@ -617,7 +617,7 @@ local function RefreshCDMIconAppearance(barKey)
         end
         -- "Audio Effect on CD Ready": register cd/utility icons with the sound onto the event-driven
         -- watcher (SPELL_UPDATE_COOLDOWN + SPELL_UPDATE_CHARGES; charge and non-charge both handled there). Icons without the sound self-skip inside.
-        if not isBuffFamilyBar and ns.WatchCdReadySoundIfEnabled then
+        if ns._cdmAnyCdReadySound and not isBuffFamilyBar and ns.WatchCdReadySoundIfEnabled then
             ns.WatchCdReadySoundIfEnabled(icon)
         end
         -- Buff per-spell settings resolve for any BUFF FRAME, not just buff-family bars: a hosted

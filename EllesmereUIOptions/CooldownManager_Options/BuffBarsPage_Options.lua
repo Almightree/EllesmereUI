@@ -1876,7 +1876,7 @@ local function InitBuffBarsPage(PP, DB, Refresh, FONT_PATH, GetCDMOptOutline, Ga
                 sm:SetFrameLevel(320)
                 sm:SetClampedToScreen(true)
                 sm:EnableMouse(true)
-                sm:SetSize(W, 8 + ITEM_H * 3)
+                sm:SetSize(W, 8 + ITEM_H * 4)
                 local smBg = sm:CreateTexture(nil, "BACKGROUND")
                 smBg:SetAllPoints(); smBg:SetColorTexture(mBgR, mBgG, mBgB, mBgHA)
                 EllesmereUI.MakeBorder(sm, 1, 1, 1, mBrdA, EllesmereUI.PP)
@@ -1893,23 +1893,43 @@ local function InitBuffBarsPage(PP, DB, Refresh, FONT_PATH, GetCDMOptOutline, Ga
                     if i == 1 then audioOrder[#audioOrder + 1] = "tts" end
                 end
                 local flyouts = {}
-                local textRow
+                local soundRows = {}
+                local textRows = {}
+                local audioFields = { "buffActiveSoundKey", "buffLostSoundKey" }
+                local function RefreshAudioRows()
+                    local nextRow = 1
+                    for _, field in ipairs(audioFields) do
+                        local soundRow = soundRows[field]
+                        if soundRow then
+                            soundRow:ClearAllPoints()
+                            soundRow:SetPoint("TOPLEFT", sm, "TOPLEFT", 1, -4 - (nextRow - 1) * ITEM_H)
+                            soundRow:SetPoint("TOPRIGHT", sm, "TOPRIGHT", -1, -4 - (nextRow - 1) * ITEM_H)
+                            nextRow = nextRow + 1
+                        end
+                        local row = textRows[field]
+                        if row then
+                            local shown = ns.EffectiveAudioKey(cfg, field) == "__tts"
+                            row:SetShown(shown)
+                            if shown then
+                                row:ClearAllPoints()
+                                row:SetPoint("TOPLEFT", sm, "TOPLEFT", 1, -4 - (nextRow - 1) * ITEM_H)
+                                row:SetPoint("TOPRIGHT", sm, "TOPRIGHT", -1, -4 - (nextRow - 1) * ITEM_H)
+                                nextRow = nextRow + 1
+                            end
+                        end
+                    end
+                    sm:SetHeight(8 + ITEM_H * (nextRow - 1))
+                end
                 local function GetAudioTextFieldAndValue(soundField)
                     local textField = ns.AudioTextField(soundField)
-                    local legacyField = soundField .. "TtsText"
-                    if textField and cfg[textField] == nil and type(cfg[legacyField]) == "string" then
-                        cfg[textField] = cfg[legacyField]
-                        cfg[legacyField] = nil
-                    end
                     return textField, textField and cfg[textField]
                 end
 
-                local function MakeSoundRow(i, label, field)
+                local function MakeSoundRow(label, field)
                     local row = CreateFrame("Button", nil, sm)
                     row:SetHeight(ITEM_H)
-                    row:SetPoint("TOPLEFT", sm, "TOPLEFT", 1, -4 - (i - 1) * ITEM_H)
-                    row:SetPoint("TOPRIGHT", sm, "TOPRIGHT", -1, -4 - (i - 1) * ITEM_H)
                     row:SetFrameLevel(sm:GetFrameLevel() + 2)
+                    soundRows[field] = row
                     local lbl = row:CreateFontString(nil, "OVERLAY")
                     lbl:SetFont(FONT_PATH, 11, GetCDMOptOutline())
                     lbl:SetPoint("LEFT", row, "LEFT", 10, 0)
@@ -1929,7 +1949,7 @@ local function InitBuffBarsPage(PP, DB, Refresh, FONT_PATH, GetCDMOptOutline, Ga
                     local hl = row:CreateTexture(nil, "ARTWORK")
                     hl:SetAllPoints(); hl:SetColorTexture(1, 1, 1, 1); hl:SetAlpha(0)
 
-                    local function Get() return ns.AudioModeChoice(cfg, field) end
+                    local function Get() return ns.AudioSelectionChoice(cfg, field) end
                     -- Accent label while a sound is chosen, like the icon menu's rows.
                     local function Paint()
                         local k = Get()
@@ -1942,26 +1962,15 @@ local function InitBuffBarsPage(PP, DB, Refresh, FONT_PATH, GetCDMOptOutline, Ga
                     end
                     Paint()
                     local function Set(v)
-                        ns.SetAudioModeChoice(cfg, field, v)
-                        ns.RefreshAudioEnabledState()
+                        ns.SetAudioSelectionChoice(cfg, field, v)
+                        if v ~= "none" then ns.EnsureTBBSoundHooks() end
                         Paint()
-                        if sm._ttsField == field and textRow then
-                            local enabled = v == "tts"
-                            textRow._ttsEditorEnabled = enabled
-                            textRow:SetAlpha(enabled and 1 or 0.38)
-                            textRow:EnableMouse(enabled)
-                        end
+                        RefreshAudioRows()
                         -- The bar row's speaker button follows (dimmed with no sound).
                         if anchorRow._sndPaint then anchorRow._sndPaint() end
                     end
                     local function ShowFlyout()
-                        sm._ttsField = field
-                        if textRow then
-                            local enabled = Get() == "tts"
-                            textRow._ttsEditorEnabled = enabled
-                            textRow:SetAlpha(enabled and 1 or 0.38)
-                            textRow:EnableMouse(enabled)
-                        end
+                        RefreshAudioRows()
                         hl:SetAlpha(hlA)
                         for f, fly in pairs(flyouts) do
                             if f ~= field then fly:Hide() end
@@ -1980,15 +1989,17 @@ local function InitBuffBarsPage(PP, DB, Refresh, FONT_PATH, GetCDMOptOutline, Ga
                                 if key == "tts" then return EllesmereUI.SOUND_ICON_ATLAS end
                                 return paths[key] and EllesmereUI.SOUND_ICON_ATLAS or nil
                             end
-                            values._menuOpts.iconPressedAtlas = values._menuOpts.iconAtlas
+                            values._menuOpts.iconPressedAtlas = function(key)
+                                if key == "tts" then return EllesmereUI.SOUND_ICON_PRESSED_ATLAS end
+                                return paths[key] and EllesmereUI.SOUND_ICON_PRESSED_ATLAS or nil
+                            end
                             values._menuOpts.iconOnClick = function(key)
                                 if key == "tts" then
                                     local textField, text = GetAudioTextFieldAndValue(field)
                                     local assigned = cfg.assignedSpells
                                     local sid = cfg.spellID or (type(assigned) == "table" and assigned[1])
                                     local event = field == "buffActiveSoundKey" and "gain" or "loss"
-                                    if ns.EffectiveAudioKey(cfg, field) ~= "tts" then return end
-                                    ns.PlayAudioCue("tts", text, sid, event)
+                                    ns.PlayAudioCue("__tts", text, sid, event)
                                 else
                                     EllesmereUI.PlaySoundPath(paths[key])
                                 end
@@ -2014,39 +2025,37 @@ local function InitBuffBarsPage(PP, DB, Refresh, FONT_PATH, GetCDMOptOutline, Ga
                     row:SetScript("OnClick", ShowFlyout)
                     row:SetScript("OnLeave", function() hl:SetAlpha(0) end)
                 end
-                MakeSoundRow(1, "Audio on Buff Gain", "buffActiveSoundKey")
-                MakeSoundRow(2, "Audio on Buff Loss", "buffLostSoundKey")
-                textRow = CreateFrame("Button", nil, sm)
-                textRow:SetHeight(ITEM_H)
-                textRow:SetPoint("TOPLEFT", sm, "TOPLEFT", 1, -4 - 2 * ITEM_H)
-                textRow:SetPoint("TOPRIGHT", sm, "TOPRIGHT", -1, -4 - 2 * ITEM_H)
-                textRow:SetFrameLevel(sm:GetFrameLevel() + 2)
-                local textLabel = textRow:CreateFontString(nil, "OVERLAY")
-                textLabel:SetFont(FONT_PATH, 11, GetCDMOptOutline())
-                textLabel:SetPoint("LEFT", textRow, "LEFT", 10, 0)
-                textLabel:SetText(EllesmereUI.L("Edit TTS Message"))
-                textLabel:SetTextColor(tDimR, tDimG, tDimB, tDimA)
-                textRow:SetAlpha(0.38)
-                textRow:EnableMouse(false)
-                textRow:SetScript("OnEnter", function()
-                    if textRow._ttsEditorEnabled then textLabel:SetTextColor(1, 1, 1, 1) end
-                end)
-                textRow:SetScript("OnLeave", function() textLabel:SetTextColor(tDimR, tDimG, tDimB, tDimA) end)
-                textRow:SetScript("OnClick", function()
-                    local field = sm._ttsField or "buffActiveSoundKey"
-                    if ns.EffectiveAudioKey(cfg, field) ~= "tts" then return end
-                    local textField, initialText = GetAudioTextFieldAndValue(field)
-                    local assigned = cfg.assignedSpells
-                    local sid = cfg.spellID or (type(assigned) == "table" and assigned[1])
-                    local event = field == "buffActiveSoundKey" and "gain" or "loss"
-                    EllesmereUI.ShowTTSTextPopup(EllesmereUI.L("Buff TTS Message"),
-                        type(initialText) == "string" and initialText or "",
-                        EllesmereUI.DefaultCDMAudioText(sid, event), function(text)
-                            cfg[textField] = text ~= "" and text or false
-                        end, function(text)
-                            ns.PlayAudioCue("tts", text, sid, event)
-                        end)
-                end)
+                MakeSoundRow("Audio on Buff Gain", "buffActiveSoundKey")
+                MakeSoundRow("Audio on Buff Loss", "buffLostSoundKey")
+                local function MakeTextEditorRow(field, event, rowLabel)
+                    local row = CreateFrame("Button", nil, sm)
+                    row:SetHeight(ITEM_H)
+                    row:SetFrameLevel(sm:GetFrameLevel() + 2)
+                    local label = row:CreateFontString(nil, "OVERLAY")
+                    label:SetFont(FONT_PATH, 11, GetCDMOptOutline())
+                    label:SetPoint("LEFT", row, "LEFT", 10, 0)
+                    label:SetText(EllesmereUI.L(rowLabel))
+                    label:SetTextColor(tDimR, tDimG, tDimB, tDimA)
+                    row:SetScript("OnEnter", function() label:SetTextColor(1, 1, 1, 1) end)
+                    row:SetScript("OnLeave", function() label:SetTextColor(tDimR, tDimG, tDimB, tDimA) end)
+                    row:SetScript("OnClick", function()
+                        if ns.EffectiveAudioKey(cfg, field) ~= "__tts" then return end
+                        local textField, initialText = GetAudioTextFieldAndValue(field)
+                        local assigned = cfg.assignedSpells
+                        local sid = cfg.spellID or (type(assigned) == "table" and assigned[1])
+                        EllesmereUI.ShowTTSTextPopup(EllesmereUI.L("Buff TTS Message"),
+                            type(initialText) == "string" and initialText or "",
+                            EllesmereUI.DefaultCDMAudioText(sid, event), function(text)
+                                cfg[textField] = text ~= "" and text or false
+                            end, function(text, voiceID, volume)
+                                ns.PlayAudioCue("__tts", text, sid, event, voiceID, volume)
+                            end)
+                    end)
+                    textRows[field] = row
+                end
+                MakeTextEditorRow("buffActiveSoundKey", "gain", "Edit Gain TTS Message")
+                MakeTextEditorRow("buffLostSoundKey", "loss", "Edit Loss TTS Message")
+                RefreshAudioRows()
 
                 local function OverAny()
                     if sm:IsMouseOver() then return true end
