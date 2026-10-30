@@ -12,13 +12,20 @@ EUI_NS = EUI_NS.__euiCoreNS or EUI_NS  -- standalone builds: the core's own tabl
 
 -------------------------------------------------------------------------------
 --  External weak-keyed lookup table for frame state (prevents tainting Blizzard
---  frames). Stored on EllesmereUI to avoid the 200-local cap in EllesmereUI.lua.
+--  frames). NewFrameData returns a fresh table and its getter; each file keeps
+--  its own, so two files never share fields on one frame. The core's pair is
+--  stored on EllesmereUI to avoid the 200-local cap in EllesmereUI.lua.
 -------------------------------------------------------------------------------
-EllesmereUI._FFD = EllesmereUI._FFD or setmetatable({}, { __mode = "k" })
-function EllesmereUI._GetFFD(frame)
-    local d = EllesmereUI._FFD[frame]
-    if not d then d = {}; EllesmereUI._FFD[frame] = d end
-    return d
+function EllesmereUI.NewFrameData()
+    local FFD = setmetatable({}, { __mode = "k" })
+    return FFD, function(frame)
+        local d = FFD[frame]
+        if not d then d = {}; FFD[frame] = d end
+        return d
+    end
+end
+if not EllesmereUI._FFD then
+    EllesmereUI._FFD, EllesmereUI._GetFFD = EllesmereUI.NewFrameData()
 end
 
 -- Stock styles, enable-time catch-up seeds: a profile already on a stock
@@ -90,6 +97,27 @@ function EllesmereUI.SetElementVisibility(frame, visible)
         EllesmereUI._GetFFD(frame).restoreMouse = frame:IsMouseEnabled()
         frame:SetAlpha(0)
         frame:EnableMouse(false)
+    end
+end
+
+-------------------------------------------------------------------------------
+--  An Edit Mode system's own child (its Selection box, a resize button) made
+--  inert in place while a module of ours owns that frame's spot or size, so
+--  Edit Mode cannot pick it up: alpha and mouse only, never reparented (a
+--  region its owner still writes stays in its tree). inert = false turns it
+--  back on; a caller does that only for a child it turned off itself.
+--  GetAlpha can read secret on some widgets in lockdown; a secret skips the
+--  compare and re-asserts.
+-------------------------------------------------------------------------------
+function EllesmereUI.SetEditModeChildInert(f, inert)
+    if not f then return end
+    local alpha = inert and 0 or 1
+    local a = f:GetAlpha()
+    if issecretvalue(a) or a ~= alpha then f:SetAlpha(alpha) end
+    if f.SetMouseClickEnabled then
+        local on = not inert
+        if f:IsMouseClickEnabled() ~= on then f:SetMouseClickEnabled(on) end
+        if f:IsMouseMotionEnabled() ~= on then f:SetMouseMotionEnabled(on) end
     end
 end
 

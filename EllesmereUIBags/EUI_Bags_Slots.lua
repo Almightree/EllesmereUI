@@ -16,7 +16,7 @@ local GetItemInfo = C_Item.GetItemInfo
 local EUI = EllesmereUI
 
 local _bankRouted, BP, GetFont, IsGearItem = I._bankRouted, I.BP, I.GetFont, I.IsGearItem
-local NormalizePinKey, SLOT_SIZE, bagSlots = I.NormalizePinKey, I.SLOT_SIZE, I.bagSlots
+local NormalizePinKey, bagSlots = I.NormalizePinKey, I.bagSlots
 local itemSlots, reagentSlots = I.itemSlots, I.reagentSlots
 local CreateInsetBorder, SetInsetBorderColor = I.CreateInsetBorder, I.SetInsetBorderColor
 
@@ -160,8 +160,9 @@ local function GetOrCreateReagentSlot(idx)
     if InCombatLockdown() then EUI_Bags._poolShort = true; return nil end
 
     local slotParent = CreateFrame("Frame", nil, EUI_BagsReagent)
-    slotParent:SetSize(SLOT_SIZE, SLOT_SIZE)
+    ns.SizeSlot(slotParent)
     local btn = CreateFrame("ItemButton", nil, slotParent, "ContainerFrameItemButtonTemplate")
+    ns.PinItemButton(btn, EUI_BagsReagent)
     btn:SetAllPoints(slotParent)
     btn:RegisterForClicks("LeftButtonUp", "RightButtonUp")
     btn:RegisterForDrag("LeftButton")
@@ -172,7 +173,7 @@ local function GetOrCreateReagentSlot(idx)
     if btn.flash then btn.flash:Hide(); btn.flash:SetAlpha(0) end
     if btn.newitemglowAnim then btn.newitemglowAnim:Stop() end
 
-    btn:SetSize(SLOT_SIZE, SLOT_SIZE)
+    ns.SizeSlot(btn)
     if btn.icon then
         local z = BP().bagItemIconZoom or 0.08
         btn.icon:SetTexCoord(z, 1 - z, z, 1 - z)
@@ -212,10 +213,10 @@ local function GetOrCreateReagentSlot(idx)
     CreateInsetBorder(btn)
     SetInsetBorderColor(btn, 0.25, 0.25, 0.25, 1)
 
-    -- Text overlay frame: sits above Cooldown so count/ilvl aren't covered by swipe
+    -- Text overlay: above the cooldown swipe, so counts and item levels stay visible
     local textOverlay = CreateFrame("Frame", nil, btn)
     textOverlay:SetAllPoints()
-    textOverlay:SetFrameLevel((btn.Cooldown and btn.Cooldown:GetFrameLevel() or btn:GetFrameLevel()) + 2)
+    textOverlay:SetFrameLevel(btn:GetFrameLevel() + 3)
     btn._textOverlay = textOverlay
 
     local countFS = btn.Count
@@ -298,7 +299,7 @@ end
 local function GetOrCreateBagSlot(idx)
     if bagSlots[idx] then return bagSlots[idx] end
     local slotParent = CreateFrame("Frame", nil, EUI_BagsWindow)
-    slotParent:SetSize(SLOT_SIZE, SLOT_SIZE)
+    ns.SizeSlot(slotParent)
     local btn = CreateFrame("Button", nil, slotParent)
     btn:SetAllPoints(slotParent)
     btn:RegisterForClicks("LeftButtonUp", "RightButtonUp")

@@ -13,12 +13,11 @@ if not I or I.broken then return end
 I.broken = true
 
 local EUI = EllesmereUI
-local ForeverShortName = EUI.ForeverShortName
 
-local DB, GetHeaderH, ICON_ALPHA, MIN_H = I.DB, I.GetHeaderH, I.ICON_ALPHA, I.MIN_H
-local MIN_W, _windows = I.MIN_W, I._windows
+local DB, GetHeaderH, ICON_ALPHA = I.DB, I.GetHeaderH, I.ICON_ALPHA
+local _windows = I._windows
 local ApplyHeaderButtonsHoverVisibility = I.ApplyHeaderButtonsHoverVisibility
-local LayoutHeaderButtons, WinDB, GetAccentRGB = I.LayoutHeaderButtons, I.WinDB, I.GetAccentRGB
+local LayoutHeaderButtons, GetAccentRGB = I.LayoutHeaderButtons, I.GetAccentRGB
 local PhysicalPixels, SetDMFont = I.PhysicalPixels, I.SetDMFont
 
 -- ns exports (loop over all windows)
@@ -63,20 +62,18 @@ end
 -- Exposed on the shared table so the parent addon's ApplyColorsToOUF can repaint damage meters when global custom class colors change
 EllesmereUI._DM_RefreshColors = ns.RefreshColors
 
--- WoW Forever: a Name Format change (the Left Text cog, Forever Essentials).
--- The row and pinned-row name memos are keyed on the raw name, so they are
--- dropped before the repaint; the breakdown rows and hover headers are rebuilt
--- on every refresh and show. A hidden window catches up when it shows.
-if ForeverShortName then
-    ns.RefreshNames = function()
-        for _, w in ipairs(_windows) do
-            local pool = w.rowPool
-            if pool then
-                for i = 1, #pool do pool[i]._cachedSrcName = nil end
-            end
-            w._stickyNameCache = nil
-            w.Refresh()
+-- A Name Format change (the Left Text cog; on WoW Forever also Forever
+-- Essentials). The row and pinned-row name memos are keyed on the raw name, so
+-- they are dropped before the repaint; the breakdown rows and hover headers are
+-- rebuilt on every refresh and show. A hidden window catches up when it shows.
+ns.RefreshNames = function()
+    for _, w in ipairs(_windows) do
+        local pool = w.rowPool
+        if pool then
+            for i = 1, #pool do pool[i]._cachedSrcName = nil end
         end
+        w._stickyNameCache = nil
+        w.Refresh()
     end
 end
 
@@ -246,22 +243,6 @@ ns.ApplyIconBorder = function()
         end
         if w.stickyPlayer and w.stickyPlayer.ApplyIconBorder then
             w.stickyPlayer.ApplyIconBorder()
-        end
-    end
-end
-
-ns.ApplyDMPosition = function()
-    for _, w in ipairs(_windows) do
-        if w.ApplyPosition then w.ApplyPosition() end
-    end
-end
-
-ns.ApplyDMSize = function()
-    for _, w in ipairs(_windows) do
-        local wdb = WinDB(w.idx)
-        if w.frame then
-            if wdb.width then w.frame:SetWidth(math.max(MIN_W, wdb.width)) end
-            if wdb.height then w.frame:SetHeight(math.max(MIN_H, wdb.height)) end
         end
     end
 end
