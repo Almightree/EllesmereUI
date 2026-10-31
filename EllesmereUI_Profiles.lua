@@ -2146,6 +2146,7 @@ do
         "lfgRememberRoles",
         "merchantShowAsList", "merchantListRowHeight", "merchantShowItemLevel", "merchantBulkBuy",
         "mailAltList", "mailAltListMax", "mailAltListMinLevel", "mailAltListSort",
+        "mailCloseBags",
         -- Friends List card (WoW Forever: the friend tiles and auto-accept)
         "friendsListCard",
     })
