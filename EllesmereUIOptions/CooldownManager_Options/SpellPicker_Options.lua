@@ -580,6 +580,7 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
                 -- the per-spell setters normally arm -- flip the same flags.
                 AB.FlipSessionGates = function(t)
                     if not t then return end
+                    if ns.EffectiveAudioKey(t, "cdReadySoundKey") then ns._cdmAnyCdReadySound = true end
                     if ns.EffectiveAudioKey(t, "buffActiveSoundKey") then ns._cdmAnyBuffSound = true end
                     if ns.EffectiveAudioKey(t, "buffLostSoundKey") then ns._cdmAnyBuffSound = true end
                     if t.reverseSwipe then ns._cdmAnyReverseSwipe = true end
