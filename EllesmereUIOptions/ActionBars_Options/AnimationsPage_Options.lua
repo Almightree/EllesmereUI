@@ -262,10 +262,9 @@ local function InitAnimationsPage(PP, EAB, PAGE_ANIMATIONS)
         G.StartSpecGlow(ov, GO.Spec(procGlowDesc), PREVIEW_ICON_SIZE, PREVIEW_ICON_SIZE, "icon", G.PANEL_EXTRA)
     end
 
-    -- Assisted Highlight preview. Custom styles use the same shared glow engine
-    -- as the live buttons, so the picker shows the real animation instead of a
-    -- generic static border. Legacy Ring/Overlay modes keep a lightweight local
-    -- preview and never touch live action-button glow state.
+    -- Assisted Highlight preview. A custom glow runs on the shared glow engine,
+    -- as on the live buttons; the ring and overlay styles draw a plain stand-in
+    -- of their own, so the preview never touches a live button's glow.
     local function UpdateAssistGlowPreview(f)
         if not f then return end
         local p = EAB.db and EAB.db.profile or {}
@@ -303,28 +302,26 @@ local function InitAnimationsPage(PP, EAB, PAGE_ANIMATIONS)
 
         local list = ns.LOOP_GLOW_TYPES or {}
         if customType > 0 and list[customType] then
-            local cr, cg, cb
-            if p.assistGlowUseClassColor then
-                local _, class = UnitClass("player")
-                local cc = RAID_CLASS_COLORS[class]
-                cr, cg, cb = cc and cc.r or 1, cc and cc.g or 1, cc and cc.b or 1
-            else
-                local c = p.assistGlowColor or { r = 0.15, g = 0.5, b = 1 }
-                cr, cg, cb = c.r or 0.15, c.g or 0.5, c.b or 1
-            end
+            local cr, cg, cb = ns._AssistCustomGlowColor()
             f:SetAlpha(1)
-            if f:IsVisible() then
+            -- Every widget refresh lands here: the engine glow restarts only
+            -- when the style or colour moved, or after a hide stopped it.
+            if f:IsVisible() and not (f._assistPvType == customType and f._assistPvR == cr
+                and f._assistPvG == cg and f._assistPvB == cb) then
+                G.StopAllGlows(glowHost)
                 G.StartSpecGlow(glowHost,
                     { style = customType, r = cr, g = cg, b = cb },
                     PREVIEW_ICON_SIZE, PREVIEW_ICON_SIZE, "icon", G.PANEL_EXTRA)
+                f._assistPvType, f._assistPvR, f._assistPvG, f._assistPvB = customType, cr, cg, cb
             end
             return
         end
 
         G.StopAllGlows(glowHost)
+        f._assistPvType = nil
         f:SetAlpha(1)
 
-        -- Simple local representation for the legacy Blizzard/EUI ring modes.
+        -- The ring and overlay styles: a plain stand-in of each.
         if style == 1 or style == 3 then
             ring[1]:ClearAllPoints(); ring[1]:SetPoint("TOPLEFT", f); ring[1]:SetPoint("TOPRIGHT", f); ring[1]:SetHeight(2)
             ring[2]:ClearAllPoints(); ring[2]:SetPoint("BOTTOMLEFT", f); ring[2]:SetPoint("BOTTOMRIGHT", f); ring[2]:SetHeight(2)
@@ -612,8 +609,9 @@ local function InitAnimationsPage(PP, EAB, PAGE_ANIMATIONS)
         end
         y = y - h
 
-        -- Assisted Highlight: keep the current upstream layout and add the
-        -- optional custom glow engines as extra choices.
+        -- Assisted Highlight: the three stock styles, then one entry per glow
+        -- engine (the Shape Glow is not offered: shaped buttons take it by
+        -- themselves, as the proc glow does).
         local assistValues = {
             [1] = "Glow Ring",
             [2] = "Button Overlay",
@@ -641,7 +639,7 @@ local function InitAnimationsPage(PP, EAB, PAGE_ANIMATIONS)
         assistRow, h = W:DualRow(parent, y,
             { type="dropdown", text="Assisted Highlight",
               values=assistValues, order=assistOrder,
-              tooltip="Use Blizzard-style highlighting, the existing EUI styles, or an optional custom glow. Existing users keep Glow Ring unless they choose another entry.",
+              tooltip="How Blizzard's next-spell suggestion is drawn on the button. Button Overlay replaces the blue ring with a flat tint, leaving the button edge free for the proc glow; a glow style runs that glow in combat and shows the ring outside it.",
               disabled=AssistOff,
               disabledTooltip="This option requires Blizzard's Assisted Highlight to be enabled",
               rawTooltip=true,
@@ -658,9 +656,9 @@ local function InitAnimationsPage(PP, EAB, PAGE_ANIMATIONS)
                       p.assistGlowType = 0
                       p.assistGlowStyle = v
                   end
-                  if ns.UpdateAssistHighlights then ns.UpdateAssistHighlights() end
+                  ns.UpdateAssistHighlights()
                   UpdateAssistGlowPreview(_assistGlowPreview)
-                  C_Timer.After(0, function() EllesmereUI:RefreshPage() end)
+                  EllesmereUI:RefreshPage()
               end },
             { type="slider", text="Assisted Highlight Outset", min=-10, max=30, step=1,
               tooltip="Moves the blue Assisted Highlight ring outward (or inward at negative values) so it no longer overlaps the proc glow on the same button. With Ring + Overlay the tint resizes along with it, so the two stay flush.",
@@ -670,7 +668,7 @@ local function InitAnimationsPage(PP, EAB, PAGE_ANIMATIONS)
               getValue=function() return p.assistGlowOutset or 0 end,
               setValue=function(v)
                   p.assistGlowOutset = v
-                  if ns.UpdateAssistHighlights then ns.UpdateAssistHighlights() end
+                  ns.UpdateAssistHighlights()
                   UpdateAssistGlowPreview(_assistGlowPreview)
               end })
         if not EllesmereUI._prebuilding then
@@ -683,44 +681,35 @@ local function InitAnimationsPage(PP, EAB, PAGE_ANIMATIONS)
                 _assistGlowPreview._icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
             end
 
-            -- Custom Assisted Highlight color lives beside its preview icon, as
-            -- in the original layout. It is disabled for legacy styles and while
-            -- class color owns the custom glow color.
-            local assistSwatch, assistUpdateSwatch = EllesmereUI.BuildColorSwatch(
-                leftRgn, leftRgn:GetFrameLevel() + 5,
-                function()
-                    local c = p.assistGlowColor or { r = 0.15, g = 0.5, b = 1 }
-                    return c.r, c.g, c.b
+            -- The custom glow's colour, chained left of the preview icon; the
+            -- class colour owns it while Use Class Color is on.
+            leftRgn._lastInline = _assistGlowPreview
+            EllesmereUI.BuildInlineSwatches(leftRgn, {
+                { tooltip = "Assisted Highlight Glow Color", hasAlpha = false,
+                  getValue = function()
+                      local c = p.assistGlowColor or { r = 0.15, g = 0.5, b = 1 }
+                      return c.r, c.g, c.b
+                  end,
+                  setValue = function(r, g, b)
+                      p.assistGlowColor = { r = r, g = g, b = b }
+                      ns.UpdateAssistHighlights()
+                      UpdateAssistGlowPreview(_assistGlowPreview)
+                  end },
+            }, {
+                disabled = function() return AssistOff() or not assistCustomSelected() or p.assistGlowUseClassColor end,
+                disabledTooltip = function()
+                    if AssistOff() then return "This option requires Blizzard's Assisted Highlight to be enabled" end
+                    if not assistCustomSelected() then return "This option requires a custom Assisted Highlight glow to be selected" end
+                    return EllesmereUI.DisabledTooltip("Use Class Color", "disabled")
                 end,
-                function(r, g, b)
-                    p.assistGlowColor = { r = r, g = g, b = b }
-                    if ns.UpdateAssistHighlights then ns.UpdateAssistHighlights() end
-                    UpdateAssistGlowPreview(_assistGlowPreview)
-                end, nil, 24)
-            PP.Point(assistSwatch, "RIGHT", _assistGlowPreview, "LEFT", -12, 0)
-            assistSwatch:HookScript("OnEnter", function(self)
-                if AssistOff() then
-                    EllesmereUI.ShowWidgetTooltip(self, "This option requires Blizzard's Assisted Highlight to be enabled")
-                elseif not assistCustomSelected() then
-                    EllesmereUI.ShowWidgetTooltip(self, "This option requires a custom Assisted Highlight glow to be selected")
-                elseif p.assistGlowUseClassColor then
-                    EllesmereUI.ShowWidgetTooltip(self, EllesmereUI.DisabledTooltip("Class Colors", "disabled"))
-                end
-            end)
-            assistSwatch:HookScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-            local function RefreshAssistSwatch()
-                local off = AssistOff() or not assistCustomSelected() or p.assistGlowUseClassColor
-                assistSwatch:SetAlpha(off and 0.15 or 1)
-                assistSwatch:SetMouseClickEnabled(not off)
-                assistUpdateSwatch()
-            end
-            EllesmereUI.RegisterWidgetRefresh(RefreshAssistSwatch)
-            RefreshAssistSwatch()
+                rawTooltip = true,
+            })
 
             -- Keep animated preview hosts out of the central glow driver while
             -- this page is hidden; restart them from the current values on show.
             _assistGlowPreview:SetScript("OnHide", function(self)
                 if self._assistGlowOv then EllesmereUI.Glows.StopAllGlows(self._assistGlowOv) end
+                self._assistPvType = nil
             end)
             _assistGlowPreview:SetScript("OnShow", UpdateAssistGlowPreview)
             UpdateAssistGlowPreview(_assistGlowPreview)
@@ -739,7 +728,7 @@ local function InitAnimationsPage(PP, EAB, PAGE_ANIMATIONS)
               getValue=function() return p.assistGlowOverlayAlpha or 30 end,
               setValue=function(v)
                   p.assistGlowOverlayAlpha = v
-                  if ns.UpdateAssistHighlights then ns.UpdateAssistHighlights() end
+                  ns.UpdateAssistHighlights()
                   UpdateAssistGlowPreview(_assistGlowPreview)
               end },
             { type="toggle", text="Fit Ring to Cropped Buttons",
@@ -750,7 +739,7 @@ local function InitAnimationsPage(PP, EAB, PAGE_ANIMATIONS)
               getValue=function() return p.assistGlowFitCropped or false end,
               setValue=function(v)
                   p.assistGlowFitCropped = v
-                  if ns.UpdateAssistHighlights then ns.UpdateAssistHighlights() end
+                  ns.UpdateAssistHighlights()
               end })
         if not EllesmereUI._prebuilding then
             EllesmereUI.BuildInlineSwatches(overlayRow._leftRegion, {
@@ -761,7 +750,7 @@ local function InitAnimationsPage(PP, EAB, PAGE_ANIMATIONS)
                   end,
                   setValue = function(r, g, b)
                       p.assistGlowOverlayColor = { r = r, g = g, b = b }
-                      if ns.UpdateAssistHighlights then ns.UpdateAssistHighlights() end
+                      ns.UpdateAssistHighlights()
                       UpdateAssistGlowPreview(_assistGlowPreview)
                   end },
             }, {
@@ -771,8 +760,8 @@ local function InitAnimationsPage(PP, EAB, PAGE_ANIMATIONS)
         end
         y = y - h
 
-        -- Row 4: class-color ownership for custom Assisted Highlight glows.
-        -- The custom color swatch itself is inline beside the preview icon above.
+        -- Row 4: the custom glow's colour source (its swatch sits beside the
+        -- preview icon above).
         _, h = W:DualRow(parent, y,
             { type="toggle", text="Use Class Color",
               disabled=function() return AssistOff() or not assistCustomSelected() end,
@@ -781,7 +770,7 @@ local function InitAnimationsPage(PP, EAB, PAGE_ANIMATIONS)
               getValue=function() return p.assistGlowUseClassColor or false end,
               setValue=function(v)
                   p.assistGlowUseClassColor = v
-                  if ns.UpdateAssistHighlights then ns.UpdateAssistHighlights() end
+                  ns.UpdateAssistHighlights()
                   UpdateAssistGlowPreview(_assistGlowPreview)
                   EllesmereUI:RefreshPage()
               end },

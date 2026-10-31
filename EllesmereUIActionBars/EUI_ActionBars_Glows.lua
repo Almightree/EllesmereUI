@@ -467,18 +467,15 @@ do
         return hf
     end
 
-    -- Optional custom Assisted Highlight glows reuse the shared glow engines,
-    -- but remain completely separate from Custom Proc Glow profile state.
+    -- The custom Assisted Highlight glows run on the shared glow engines with
+    -- settings of their own (assistGlow*), never the Custom Proc Glow's.
+    -- Their colour: the palette's class colour or the picked one; the one
+    -- reader for the live buttons and the Animations page preview.
     ns._AssistCustomGlowColor = function()
         local p = EAB.db and EAB.db.profile
-        if p and p.assistGlowUseClassColor then
-            local _, class = UnitClass("player")
-            local cc = RAID_CLASS_COLORS[class]
-            if cc then return cc.r, cc.g, cc.b end
-            return 1, 1, 1
-        end
-        local c = (p and p.assistGlowColor) or { r = 0.15, g = 0.5, b = 1 }
-        return c.r or 0.15, c.g or 0.5, c.b or 1
+        local c = p and p.assistGlowColor
+        return _G_Glows.ResolveColor(_G_Glows.DeriveColorMode(nil, p and p.assistGlowUseClassColor),
+            c and c.r, c and c.g, c and c.b, 0.15, 0.5, 1)
     end
 
     ns._AssistCustomGlowStop = function(btn)
@@ -766,7 +763,7 @@ do
         end
 
         local style = (p and p.assistGlowStyle) or 1
-        -- Custom styles use the frozen native ring outside combat.
+        -- A custom glow runs in combat only: outside it, Blizzard's frozen ring.
         if customType > 0 or style == 0 then style = 1 end
 
         ns._AssistOverlay(btn, style)
@@ -814,22 +811,15 @@ do
     -- AssistedCombatManager:GetActionButtonSpellForAssistedHighlight.
     -- Attribute first: secure paging writes "action", the authoritative slot
     -- (see ForceCooldownPaint); btn.action is a derived mirror.
-    local function AssistPublicSpellID(value)
-        if issecretvalue and issecretvalue(value) then return nil end
-        if type(value) ~= "number" or value <= 0 then return nil end
-        return value
-    end
-
     local function ButtonSpell(btn)
-        local action = AssistPublicSpellID(btn.GetAttribute and btn:GetAttribute("action"))
-        if not action then action = AssistPublicSpellID(btn.action) end
-        if not action then return nil end
+        local action = btn.GetAttribute and btn:GetAttribute("action")
+        if action == nil then action = btn.action end
+        if action == nil then return nil end
         local atype, id, subType = GetActionInfo(action)
-        if issecretvalue and (issecretvalue(atype) or issecretvalue(subType)) then return nil end
         if atype == "spell" and subType ~= "assistedcombat" then
-            return AssistPublicSpellID(id)
+            return id
         elseif atype == "macro" and subType == "spell" then
-            return AssistPublicSpellID(id)
+            return id
         end
         return nil
     end
@@ -844,15 +834,13 @@ do
         end
         local suggested = C_AssistedCombat and C_AssistedCombat.GetNextCastSpell
             and C_AssistedCombat.GetNextCastSpell()
-        suggested = AssistPublicSpellID(suggested)
         local newSet = {}
         if suggested then
             -- Match base ids in both directions (button or suggestion may hold
             -- either the base or an override), same as the CDM side. sid > 0
             -- guards item/macro pseudo-ids out of GetBaseSpell.
             local GetBaseSpell = C_Spell and C_Spell.GetBaseSpell
-            local suggestedBase = suggested
-            if GetBaseSpell then suggestedBase = AssistPublicSpellID(GetBaseSpell(suggested)) or suggested end
+            local suggestedBase = (GetBaseSpell and GetBaseSpell(suggested)) or suggested
             for _, info in ipairs(BAR_CONFIG) do
                 if not info.isStance and not info.isPetBar then
                     local buttons = barButtons[info.key]
@@ -864,7 +852,7 @@ do
                                 if sid then
                                     local match = (sid == suggested) or (sid == suggestedBase)
                                     if not match and GetBaseSpell and sid > 0 then
-                                        match = AssistPublicSpellID(GetBaseSpell(sid)) == suggestedBase
+                                        match = GetBaseSpell(sid) == suggestedBase
                                     end
                                     if match then
                                         -- AssistShow owns the style decision and
@@ -915,8 +903,13 @@ do
         -- Exposed for the per-button rotation hook (different scope), which
         -- re-freezes Blizzard's swirl after its UpdateState calls.
         ns._assistCombatState = _assistInCombat
+        -- A custom glow runs in combat only (the frozen ring stands in outside
+        -- it), so its buttons are painted again on the edge; the stock styles
+        -- only start or stop their flipbook below.
+        local p = EAB.db and EAB.db.profile
+        local repaint = changed and ((p and p.assistGlowType) or 0) > 0
         for btn in pairs(_assistGlowed) do
-            if changed then AssistShow(btn) end
+            if repaint then AssistShow(btn) end
             local hf = EFD(btn).assistHL
             if hf and hf:IsShown() and hf.Flipbook and hf.Flipbook.Anim then
                 if _assistInCombat then
