@@ -745,7 +745,6 @@ function EUI_Bags.UnregisterItemOverlayIcon(name)
 end
 
 function EUI_Bags.RunItemOverlays(btn, data)
-    if data.bag == -1 then return end
     local fns = EUI_Bags.itemOverlayIcons
     if next(fns) == nil then return end
     for _, fn in pairs(fns) do

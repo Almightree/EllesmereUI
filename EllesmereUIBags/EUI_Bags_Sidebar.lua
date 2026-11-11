@@ -36,13 +36,14 @@ I.groupNameSetters[#I.groupNameSetters + 1] = function(v) selectedGroupName = v 
 --  Sidebar
 -------------------------------------------------------------------------------
 local _sidebarBtns = {}  -- array of sidebar button frames
+local _keyringRowShown = false
 
 -- 0 while collapsed under Hide Sidebar Icons When Collapsed (default off): the
 -- sidebar hides and its expand arrow sits left of the window title.
 -- fixed views up top: all items, onebag, multibag, plus bank when offline bank is on
 local function FixedViewCount()
     local count = 3
-    if ns.KeyringBagID and ns.KeyringBagID() then count = count + 1 end
+    if _keyringRowShown then count = count + 1 end
     if ns.Offline and ns.Offline.Enabled() then count = count + 1 end
     return count
 end
@@ -1097,6 +1098,7 @@ local function ShowCategoryContextMenu(btn, catIdx, isGroupHeader, isGroupMember
 end
 
 local function BuildSidebarButtons(categoryCounts, totalCount, showKeyring)
+    _keyringRowShown = showKeyring == true
     local sidebar = EUI_Bags._sidebar
     if not sidebar then return end
     local collapsed = BP().bagSidebarCollapsed

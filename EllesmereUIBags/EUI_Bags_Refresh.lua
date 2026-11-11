@@ -780,7 +780,7 @@ function EUI_Bags:RefreshInventory()
     -- an alt or the offline bank view: its panel takes the item area
     local offlineUp = altView or (ns.Offline and ns.Offline.Enabled() and selectedCategoryIndex == ns.OFFLINE_BANK_VIEW)
 
-    local keyringBag = not offlineUp and ns.KeyringBagID and ns.KeyringBagID()
+    local keyringBag = (not offlineUp and ns.KeyringBagID and ns.KeyringBagID()) or nil
     if selectedCategoryIndex == -4 and (not keyringBag or selectedGroupName) then
         SetSelectedGroupName(nil)
         SetSelectedCategoryIndex(0)
