@@ -1314,6 +1314,11 @@ initFrame:SetScript("OnEvent", function(self)
                       getValue=function() return db.profile.bagShowKeyring == true end,
                       setValue=function(v)
                           db.profile.bagShowKeyring = v and true or false
+                          local bagsNS = EllesmereUI._ModuleNS and EllesmereUI._ModuleNS["EllesmereUIBags"]
+                          if bagsNS and bagsNS.Offline then bagsNS.Offline.Sync() end
+                          if _G.EUI_Bags and _G.EUI_Bags.ReconcileKeyringSelection then
+                              _G.EUI_Bags:ReconcileKeyringSelection()
+                          end
                           if _G.EUI_Bags and _G.EUI_Bags.RefreshInventory then _G.EUI_Bags:RefreshInventory() end
                       end },
                     EllesmereUI.BlankRowCfg()

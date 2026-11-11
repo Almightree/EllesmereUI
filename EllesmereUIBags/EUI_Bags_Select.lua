@@ -725,6 +725,8 @@ end
 
 -- Profile switch: the categories (Junk with them) and the header icons follow the new profile
 function EUI_Bags:OnProfileApplied()
+    if ns.Offline then ns.Offline.Sync() end
+    if self.ReconcileKeyringSelection then self.ReconcileKeyringSelection() end
     self.InvalidateSetCategories()
     self:SyncHeaderIcons()
     if self:IsShown() then self:RefreshInventory() end

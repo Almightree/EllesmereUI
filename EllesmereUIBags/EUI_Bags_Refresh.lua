@@ -42,6 +42,35 @@ local selectedCategoryIndex = I.selectedCategoryIndex
 I.categoryIndexSetters[#I.categoryIndexSetters + 1] = function(v) selectedCategoryIndex = v end
 local selectedGroupName
 I.groupNameSetters[#I.groupNameSetters + 1] = function(v) selectedGroupName = v end
+
+function EUI_Bags.ReconcileKeyringSelection()
+    if selectedCategoryIndex == -4 and (selectedGroupName or not (ns.KeyringBagID and ns.KeyringBagID())) then
+        SetSelectedGroupName(nil)
+        SetSelectedCategoryIndex(0)
+        return true
+    end
+    return false
+end
+
+function ns.CollectKeyringSlots(bagID, searching)
+    local capacity = C_Container.GetContainerNumSlots(bagID) or 0
+    if capacity <= 0 then return nil, 0, capacity end
+    local slots, used = {}, 0
+    for slot = 1, capacity do
+        local info = C_Container.GetContainerItemInfo(bagID, slot)
+        if info then
+            used = used + 1
+            EUI_Bags.ApplyBindKeyword(info, bagID, slot)
+            if not info.isFiltered then
+                slots[#slots + 1] = { bag = bagID, slot = slot, info = info,
+                    itemLink = C_Container.GetContainerItemLink(bagID, slot) }
+            end
+        elseif not searching then
+            slots[#slots + 1] = { bag = bagID, slot = slot }
+        end
+    end
+    return slots, used, capacity
+end
 local _anyItemPanelOpen = I._anyItemPanelOpen
 I.anyItemPanelOpenSetters[#I.anyItemPanelOpenSetters + 1] = function(v) _anyItemPanelOpen = v end
 
@@ -565,6 +594,7 @@ end
 function EUI_Bags:RefreshInventory()
     if not EUI_Bags:IsVisible() then return end
     ns.ApplySlotMetrics()
+    EUI_Bags.ReconcileKeyringSelection()
 
     -- A select mode's hover box sits on a button this refresh may refill: put
     -- that button's border back now and re-test the hover after
@@ -780,37 +810,15 @@ function EUI_Bags:RefreshInventory()
     -- an alt or the offline bank view: its panel takes the item area
     local offlineUp = altView or (ns.Offline and ns.Offline.Enabled() and selectedCategoryIndex == ns.OFFLINE_BANK_VIEW)
 
-    local keyringBag = (not offlineUp and ns.KeyringBagID and ns.KeyringBagID()) or nil
-    if selectedCategoryIndex == -4 and (not keyringBag or selectedGroupName) then
-        SetSelectedGroupName(nil)
-        SetSelectedCategoryIndex(0)
-        selectedGroupName, selectedCategoryIndex = nil, 0
-    end
+    local keyringAvailable = ns.KeyringBagID and ns.KeyringBagID() or nil
+    local keyringBag = (not offlineUp and keyringAvailable) or nil
     if keyringBag then
-        keyringCapacity = C_Container.GetContainerNumSlots(keyringBag) or 0
-        if keyringCapacity > 0 then
-            keyringSlots = {}
-            keyringUsed = 0
-            local searching = EUI_Bags._appliedSearch and EUI_Bags._appliedSearch ~= ""
-            for slot = 1, keyringCapacity do
-                local info = C_Container.GetContainerItemInfo(keyringBag, slot)
-                if info then
-                    keyringUsed = keyringUsed + 1
-                    if not info.isFiltered then
-                        local d = { bag = keyringBag, slot = slot, info = info,
-                            itemLink = C_Container.GetContainerItemLink(keyringBag, slot) }
-                        EUI_Bags.ApplyBindKeyword(info, keyringBag, slot)
-                        if not info.isFiltered then keyringSlots[#keyringSlots + 1] = d end
-                    end
-                elseif not searching then
-                    keyringSlots[#keyringSlots + 1] = { bag = keyringBag, slot = slot }
-                end
-            end
-        end
+        keyringSlots, keyringUsed, keyringCapacity = ns.CollectKeyringSlots(keyringBag,
+            EUI_Bags._appliedSearch and EUI_Bags._appliedSearch ~= "")
     end
 
     -- 3. Update sidebar
-    BuildSidebarButtons(categoryCounts, totalCount, keyringBag ~= nil)
+    BuildSidebarButtons(categoryCounts, totalCount, keyringAvailable ~= nil)
 
     -- Cache counts for partial refresh
     _lastCatCounts = categoryCounts

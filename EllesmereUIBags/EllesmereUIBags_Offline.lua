@@ -6,8 +6,8 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --
 --  store: EllesmereUIBagsInventoryDB (its own saved vars, so profile exports
 --  and sync never carry inventories)
---    chars[key] = { name, realm, class, level, bagsTime, bankTime,
---                   bags = { container... }, bank = { container... } }
+--    chars[key] = { name, realm, class, level, bagsTime, bankTime, keyringTime,
+--                   bags = { container... }, keyring = container, bank = { container... } }
 --    warband    = { time, tabs = { container... } }
 --    container  = { size, name?, icon?, items = { [slot] = item string },
 --                   counts = { [slot] = count } } (counts only above 1)
@@ -37,6 +37,9 @@ ns.Offline = Offline
 function Offline.Enabled() return Acct().bagOfflineBank == true end
 function Offline.CountsEnabled() return Acct().bagTooltipCounts == true end
 local function Active() return Offline.Enabled() or Offline.CountsEnabled() end
+local function CanRecordKeyring()
+    return Offline.Enabled() and ns.KeyringBagID and ns.KeyringBagID() ~= nil
+end
 
 -------------------------------------------------------------------------------
 --  item strings
@@ -146,6 +149,7 @@ function Offline.Forget(key)
     if type(c) == "table" then
         if type(c.bags) == "table" then Bump(c.bags) end
         if type(c.bank) == "table" then Bump(c.bank) end
+        if type(c.keyring) == "table" then Bump(c.keyring) end
     end
     Offline.Store().chars[key] = nil
     Changed("forget")
@@ -187,11 +191,15 @@ local function MyEntry()
     local guid = UnitGUID("player")
     if guid and c.guid ~= guid then
         local moved = c.guid ~= nil
-        if moved then c.bags, c.bank, c.bagsTime, c.bankTime = nil, nil, nil, nil end
+        if moved then
+            c.bags, c.bank, c.keyring = nil, nil, nil
+            c.bagsTime, c.bankTime, c.keyringTime = nil, nil, nil
+        end
         c.guid = guid
         for k, o in pairs(chars) do
             if k ~= key and type(o) == "table" and o.guid == guid then
                 if c.bank == nil then c.bank, c.bankTime = o.bank, o.bankTime end
+                if c.keyring == nil then c.keyring, c.keyringTime = o.keyring, o.keyringTime end
                 chars[k] = nil
                 moved = true
             end
@@ -201,20 +209,38 @@ local function MyEntry()
     return c
 end
 
+local keyringLocation
+local function ReadSearchFacts(info, bagID, slot, link)
+    local bindType = link and select(14, C_Item.GetItemInfo(link))
+    if not keyringLocation then keyringLocation = ItemLocation:CreateEmpty() end
+    keyringLocation:SetBagAndSlot(bagID, slot)
+    local wue = C_Item.DoesItemExist(keyringLocation)
+        and C_Item.IsBoundToAccountUntilEquip(keyringLocation) or false
+    local level = ns._bagsInternals.GetItemLevelAtLocation(keyringLocation, link)
+    return {
+        bound = info.isBound == true,
+        bindType = bindType,
+        account = bindType == Enum.ItemBind.ToWoWAccount or bindType == Enum.ItemBind.ToBnetAccount,
+        wue = wue and true or false,
+        level = level,
+    }
+end
+
 -- one container's stuff, nil if the game says it has no slots
-local function ReadContainer(bagID)
+local function ReadContainer(bagID, withSearch)
     local size = C_Container.GetContainerNumSlots(bagID) or 0
     if size <= 0 then return nil end
-    local items, counts = {}, {}
+    local items, counts, search = {}, {}, withSearch and {} or nil
     for slot = 1, size do
         local info = C_Container.GetContainerItemInfo(bagID, slot)
         local link = info and (info.hyperlink or C_Container.GetContainerItemLink(bagID, slot))
         if link then
             items[slot] = ItemString(link)
             if (info.stackCount or 1) > 1 then counts[slot] = info.stackCount end
+            if search then search[slot] = ReadSearchFacts(info, bagID, slot, link) end
         end
     end
-    return { size = size, items = items, counts = counts }
+    return { size = size, items = items, counts = counts, search = search }
 end
 
 -- true when two saved containers hold the same items
@@ -226,8 +252,18 @@ end
 local function Same(x, y)
     if type(x) ~= type(y) then return false end
     if type(x) ~= "table" then return x == y end
-    return x.size == y.size and x.name == y.name and x.icon == y.icon
-        and SameMap(x.items, y.items) and SameMap(x.counts, y.counts)
+    if x.size ~= y.size or x.name ~= y.name or x.icon ~= y.icon
+        or not SameMap(x.items, y.items) or not SameMap(x.counts, y.counts) then return false end
+    for slot, a in pairs(x.search or _emptyP) do
+        local b = y.search and y.search[slot]
+        if type(b) ~= "table" then return false end
+        for k, v in pairs(a) do if b[k] ~= v then return false end end
+        for k in pairs(b) do if a[k] == nil then return false end end
+    end
+    for slot in pairs(y.search or _emptyP) do
+        if not (x.search and x.search[slot]) then return false end
+    end
+    return true
 end
 
 local Patch  -- below, with the tooltip index
@@ -290,6 +326,24 @@ local function SaveBags()
     if SaveList(c.bags, BAGS, BAG_POS, "bags", OwnKey()) then Changed("bags", true) end
 end
 
+local function SaveKeyring()
+    if not CanRecordKeyring() then return end
+    local bagID = ns.KeyringBagID()
+    if not bagID then return end
+    local new = ReadContainer(bagID, true)
+    if not new then return end
+    local c = MyEntry()
+    if not c then return end
+    local changed = not Same(c.keyring, new)
+    if changed then
+        Patch(c.keyring, new, "keyring", OwnKey())
+        c.keyring = new
+        Bump(new)
+    end
+    c.keyringTime = time()
+    Changed("keyring", true)
+end
+
 local function Meta(bankType)
     return C_Bank and C_Bank.FetchPurchasedBankTabData and C_Bank.FetchPurchasedBankTabData(bankType)
 end
@@ -317,18 +371,20 @@ local function SaveBanks()
 end
 
 -- a burst of updates only saves once
-local pendingBags, pendingBank = false, false
+local pendingBags, pendingBank, pendingKeyring = false, false, false
 local function Flush()
     -- a save queued just before both switches went off (the Bags reset) is dropped
-    if not Active() then pendingBags, pendingBank = false, false; return end
+    if not Active() then pendingBags, pendingBank, pendingKeyring = false, false, false; return end
     if pendingBags then pendingBags = false; SaveBags() end
     if pendingBank then pendingBank = false; SaveBanks() end
+    if pendingKeyring then pendingKeyring = false; SaveKeyring() end
 end
 local flushQueued = false
 local function FlushQueued() flushQueued = false; Flush() end
-local function Queue(bags, bank)
+local function Queue(bags, bank, keyring)
     if bags then pendingBags = true end
     if bank then pendingBank = true end
+    if keyring then pendingKeyring = true end
     if flushQueued then return end
     flushQueued = true
     C_Timer.After(0.5, FlushQueued)
@@ -349,13 +405,16 @@ ev:SetScript("OnEvent", function(_, event, arg)
     if event == "BAG_UPDATE" then
         if BAG_POS[arg] then
             dirty[arg] = true
+        elseif CanRecordKeyring() and arg == ns.KeyringBagID() then
+            Queue(false, false, true)
         elseif atBank and (CHAR_POS[arg] or WARBAND_POS[arg]) then
             dirty[arg] = true
             Queue(false, true)
         end
     elseif event == "BAG_UPDATE_DELAYED" then
-        Queue(true, false)
+        Queue(true, false, CanRecordKeyring())
     elseif event == "BAG_CONTAINER_UPDATE" then
+        Offline.Sync()
         MarkAll(BAGS)
         Queue(true, false)
         -- forever: a bag went in or out of a bank tab
@@ -392,18 +451,26 @@ local EVENTS = { "BAG_UPDATE_DELAYED", "BAG_UPDATE", "BAG_CONTAINER_UPDATE",
     "BANK_TABS_CHANGED", "BANK_TAB_SETTINGS_UPDATED" }
 
 local listening = false
+local recordingKeyring = false
 local IndexSoon  -- below
 function Offline.Sync()
     local on = Active()
-    if on == listening then return end
-    listening = on
-    for _, e in ipairs(EVENTS) do
-        if on then pcall(ev.RegisterEvent, ev, e) else ev:UnregisterEvent(e) end
+    if on ~= listening then
+        listening = on
+        for _, e in ipairs(EVENTS) do
+            if on then pcall(ev.RegisterEvent, ev, e) else ev:UnregisterEvent(e) end
+        end
+        if on then
+            MarkAll(BAGS)
+            Queue(true, false)
+        end
     end
-    if on then
-        MarkAll(BAGS)
-        Queue(true, false)
+    local keyringOn = on and CanRecordKeyring() or false
+    if keyringOn ~= recordingKeyring then
+        recordingKeyring = keyringOn
+        if keyringOn then Queue(false, false, true) end
     end
+    if EUI_Bags and EUI_Bags.ReconcileKeyringSelection then EUI_Bags.ReconcileKeyringSelection() end
 end
 
 -- the bags module reset: every saved inventory goes
@@ -415,7 +482,7 @@ function Offline.Wipe()
     Changed("forget")
     -- this character saves again right away
     MarkAll(BAGS)
-    if listening then Queue(true, false) end
+    if listening then Queue(true, false, recordingKeyring) end
 end
 
 -- an options toggle: key is bagOfflineBank or bagTooltipCounts
@@ -442,9 +509,9 @@ local function AddContainer(t, into, field, owner, sign)
             if not row then row = {}; into[id] = row end
             if owner then
                 local e = row[owner]
-                if not e then e = { bags = 0, bank = 0 }; row[owner] = e end
+                if not e then e = { bags = 0, bank = 0, keyring = 0 }; row[owner] = e end
                 e[field] = e[field] + n
-                if e.bags + e.bank <= 0 then row[owner] = nil end
+                if e.bags + e.bank + e.keyring <= 0 then row[owner] = nil end
             else
                 row.n = (row.n or 0) + n
                 if row.n <= 0 then row.n = nil end
@@ -462,6 +529,7 @@ local function Index()
         if type(c) == "table" then
             for _, t in ipairs(type(c.bags) == "table" and c.bags or _emptyP) do AddContainer(t, chars, "bags", key, 1) end
             for _, t in ipairs(type(c.bank) == "table" and c.bank or _emptyP) do AddContainer(t, chars, "bank", key, 1) end
+            AddContainer(c.keyring, chars, "keyring", key, 1)
         end
     end
     for _, t in ipairs(db.warband.tabs) do AddContainer(t, war, nil, nil, 1) end
@@ -499,11 +567,12 @@ local function BuildLines(id)
     end
     for key, e in pairs(row or _emptyP) do
         local c = db.chars[key]
-        local n = e.bags + e.bank
+        local n = e.bags + e.bank + e.keyring
         if c and n > 0 then
             local parts = {}
             if e.bags > 0 then parts[#parts + 1] = EllesmereUI.Lf("Bags %1$d", e.bags) end
             if e.bank > 0 then parts[#parts + 1] = EllesmereUI.Lf("Bank %1$d", e.bank) end
+            if e.keyring > 0 then parts[#parts + 1] = EllesmereUI.Lf("Keyring %1$d", e.keyring) end
             local name = c.name or "?"
             if (sameName[name] or 0) > 1 and c.realm and c.realm ~= "" then name = name .. "-" .. c.realm end
             lines[#lines + 1] = { ClassHex(c.class) .. name .. "|r", table.concat(parts, "  "), 1, 1, 1, n = n }

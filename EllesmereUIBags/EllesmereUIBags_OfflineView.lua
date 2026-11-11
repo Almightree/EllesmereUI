@@ -31,6 +31,7 @@ local SLOT_SIZE, SPACING = I.SLOT_SIZE, I.SPACING
 local BAR_H, PAD = 24, 10  -- same height as the sidebar header
 local ITEM_CLASS_WEAPON, ITEM_CLASS_ARMOR = Enum.ItemClass.Weapon, Enum.ItemClass.Armor
 local BANK_VIEW = -3
+local KEYRING_VIEW = -4
 ns.OFFLINE_BANK_VIEW = BANK_VIEW
 
 local function GetFont() return EUI.GetFontPath("bags") end
@@ -472,16 +473,16 @@ local function Containers(v)
     else
         local c = Offline.Char(ShownKey(v))
         if not c then return nil end
-        if v.mode == "bags" then return c.bags, c.bagsTime, c.bags end
+        if v.mode == "bags" then return c.bags, c.bagsTime, c.bags, c.keyring, c.keyringTime end
         list, saved = c.bank, c.bankTime
     end
     -- one tab picked in the bank window's sidebar: the view keeps one wrapper so the memo holds
     if i and v.mode == "bank" and type(list) == "table" and list[i] then
         local one = v.one or {}
         v.one, one[1] = one, list[i]
-        return one, saved, list
+        return one, saved, list, nil, nil
     end
-    return list, saved, list
+    return list, saved, list, nil, nil
 end
 
 -- category edits bump this, so the memo and a paint know the grouping moved.
@@ -610,6 +611,42 @@ local function Collect(list, bags, query, filter, src)
     return items, used, total
 end
 
+local function KeyringItems(snapshot, query)
+    if type(snapshot) ~= "table" then return nil, 0, 0 end
+    local items, used, total = {}, 0, snapshot.size or 0
+    local bindQuery = EUI_Bags._bindKeyword
+    for slot, str in pairs(snapshot.items or _emptyP) do
+        used = used + 1
+        local id = Offline.ItemID(str)
+        local name, q, icon = Info(str, id)
+        if q == nil and id and not failed[id] then
+            if not pending[id] then
+                pending[id] = true
+                C_Item.RequestLoadItemDataByID(id)
+            end
+        end
+        name = name or ""
+        local matches
+        if bindQuery then
+            matches = EUI_Bags.MatchSavedBindKeyword
+                and EUI_Bags.MatchSavedBindKeyword(snapshot.search and snapshot.search[slot]) or false
+        else
+            matches = query == "" or name:lower():find(query, 1, true) ~= nil
+        end
+        if matches then
+            local _, _, _, _, instIcon, classID = GetItemInfoInstant(id or str)
+            items[#items + 1] = {
+                str = str, id = id, name = name, lower = name:lower(), q = q or 1,
+                icon = icon or instIcon, n = (snapshot.counts and snapshot.counts[slot]) or 1,
+                gear = classID == ITEM_CLASS_WEAPON or classID == ITEM_CLASS_ARMOR,
+                bag = -1, slot = slot, keyring = true,
+            }
+        end
+    end
+    table.sort(items, function(a, b) return a.slot < b.slot end)
+    return items, used, total
+end
+
 -- sidebar counts for the alt's bags
 function ns.OfflineCounts()
     local c = Offline.Char(bagsView.key)
@@ -625,6 +662,7 @@ end
 local function Filter(v)
     if v.mode ~= "bags" then return nil end
     local sel, group = ns.GetSelection()
+    if sel == KEYRING_VIEW then return { keyring = true } end
     local mgr = _G.EUI_CategoryManager
     if group and mgr then
         local f = {}
@@ -718,13 +756,13 @@ end
 
 -- everything the grid draws from; the same signature twice means nothing moved.
 -- gold and the saved time are painted on their own, outside it
-local function Signature(v, list, src, query)
+local function Signature(v, list, src, query, keyring, keyringTime)
     local p = BP()
     local sel, group = ns.GetSelection()
     local r, g, b = EUI.GetAccentColor()
     local dis = DisabledKey()
     return strjoin("|", tostring(v.mode), tostring(list), list and list[1] and tostring(list[1]) or "",
-        Offline.ListRev(src), query, v.viewTab, tostring(sel),
+        Offline.ListRev(src), Offline.ListRev(keyring), tostring(keyringTime), query, v.viewTab, tostring(sel),
         tostring(group), math.floor(v.panel:GetWidth() + 0.5), SLOT_SIZE, SPACING, catGen, GetFont(),
         tostring(p.bagItemIconZoom), tostring(p.bagCountFontSize), tostring(p.itemlevelFontSize),
         tostring(p.showItemlevelInBags), tostring(p.bagQualityBorder), tostring(p.bagCatTitleSize),
@@ -747,12 +785,32 @@ Paint = function(v, force)
     if not (v.panel and v.panel:IsShown()) then return end
     local query = Query()
     local filter = Filter(v)
-    local list, saved, src = Containers(v)
-    -- saved time and gold on the bar, every time (cheap; they change on every loot)
-    local age = Age(saved)
-    v.info:SetText(age and EllesmereUI.Lf("Saved %1$s", age) or "")
+    local list, saved, src, keyring, keyringTime = Containers(v)
+    local sel = ns.GetSelection()
+    local keyringView = v == bagsView and sel == KEYRING_VIEW
+    local keyringEnabled = v == bagsView and ns.KeyringBagID and ns.KeyringBagID() ~= nil
+    local showKeyring = keyringEnabled and v.mode == "bags" and (keyringView or not filter)
+    local age, keyAge = Age(saved), Age(keyringTime)
+    local infoText
+    if keyringView then
+        infoText = keyring and keyAge and EllesmereUI.Lf("Saved %1$s", keyAge)
+            or EllesmereUI.L("Keyring not recorded")
+    elseif showKeyring then
+        if keyring and age and keyAge then
+            infoText = EllesmereUI.Lf("Bags saved %1$s; Keyring saved %2$s", age, keyAge)
+        elseif keyring and keyAge then
+            infoText = EllesmereUI.Lf("Keyring saved %1$s", keyAge)
+        elseif age then
+            infoText = EllesmereUI.Lf("Bags saved %1$s; Keyring not recorded", age)
+        else
+            infoText = EllesmereUI.L("Keyring not recorded")
+        end
+    else
+        infoText = age and EllesmereUI.Lf("Saved %1$s", age) or ""
+    end
+    v.info:SetText(infoText or "")
     PaintGold(v, Gold(v))
-    local sig = Signature(v, list, src, query)
+    local sig = Signature(v, list, src, query, keyring, keyringTime)
     if not force and sig == v.sig then
         PaintCount(v)
         return
@@ -766,9 +824,12 @@ Paint = function(v, force)
     v.child:SetWidth(math.max(width, 1))
     local titleSize = BP().bagCatTitleSize or 11
 
-    local items, used, total = Collect(list, v.mode == "bags", query, filter, src)
+    local items, used, total = {}, 0, 0
+    if not keyringView then items, used, total = Collect(list, v.mode == "bags", query, filter, src) end
+    local keyItems, keyUsed, keyTotal
+    if showKeyring then keyItems, keyUsed, keyTotal = KeyringItems(keyring, query) end
     local y, shown, nh = -6, 0, 0
-    if list then
+    if list and not keyringView then
         local groups = Group(items)
         -- onebank / onewarbank: everything in one block, no headers
         if v.mode == "bank" and select(3, TabKind(v)) then
@@ -801,6 +862,26 @@ Paint = function(v, force)
             y = y - math.ceil(#g.items / cols) * (SLOT_SIZE + SPACING) - 6
         end
     end
+    if showKeyring and keyring then
+        nh = nh + 1
+        local h = Head(v, nh)
+        SetFont(h.label, titleSize)
+        h:ClearAllPoints()
+        h:SetPoint("TOPLEFT", PAD + 5, y)
+        h:SetWidth(gridW)
+        h.label:SetText(EllesmereUI.Lf("Keyring (%d / %d)", keyUsed or 0, keyTotal or keyring.size or 0))
+        h:Show()
+        y = y - 22
+        for i, it in ipairs(keyItems or _emptyP) do
+            shown = shown + 1
+            local b = Slot(v, shown)
+            b:ClearAllPoints()
+            b:SetPoint("TOPLEFT", PAD + 5 + ((i - 1) % cols) * (SLOT_SIZE + SPACING),
+                y - math.floor((i - 1) / cols) * (SLOT_SIZE + SPACING))
+            PaintSlot(b, it)
+        end
+        y = y - math.ceil(#(keyItems or _emptyP) / cols) * (SLOT_SIZE + SPACING) - 6
+    end
     for i = shown + 1, #v.slots do v.slots[i]:Hide() end
     for i = nh + 1, #v.heads do v.heads[i]:Hide() end
     v.child:SetHeight(math.max(-y, 1))
@@ -808,7 +889,9 @@ Paint = function(v, force)
 
     -- nothing saved yet, so say how to fill it
     local empty
-    if not list then
+    if keyringView and not keyring then
+        empty = EllesmereUI.L("This character's Keyring hasn't been recorded yet. Log in with Offline Inventory and Show Keyring enabled.")
+    elseif not list and not (showKeyring and keyring) then
         if v.mode == "bags" then
             empty = EllesmereUI.L("This character's bags haven't been saved yet. Log in on this character once.")
         elseif TabKind(v) == "warband" then
@@ -824,7 +907,9 @@ Paint = function(v, force)
 
     -- slots in the window header
     local text = ""
-    if list and filter then
+    if keyringView and keyring then
+        text = EllesmereUI.Lf("%d / %d Slots", keyUsed or 0, keyTotal or keyring.size or 0)
+    elseif list and filter then
         text = EllesmereUI.Lf("%d Items", shown)
     elseif list then
         text = EllesmereUI.Lf("%d / %d Slots", used, total)
@@ -842,7 +927,10 @@ local function RunSoon(v)
     v.force = nil
     if not (v.panel and v.panel:IsVisible()) then return end
     -- an alt's sidebar counts come from these same items: just the sidebar, not a full refresh
-    if v == bagsView and AltKey(v) then I.BuildSidebarButtons(ns.OfflineCounts()) end
+    if v == bagsView and AltKey(v) then
+        local counts, total = ns.OfflineCounts()
+        I.BuildSidebarButtons(counts, total, ns.KeyringBagID and ns.KeyringBagID() ~= nil)
+    end
     Paint(v, f)
 end
 local function Soon(v, force)

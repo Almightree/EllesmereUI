@@ -564,7 +564,18 @@ do
     local GetItemLevelAtLocation = I.GetItemLevelAtLocation
 
     -- The level the slot shows: the item's current level at its location.
-    local function ItemLevelMatches(q)
+    local function ItemLevelMatches(q, facts)
+        if facts then
+            local ilvl = facts.level
+            if not ilvl then return false end
+            local op, lo = q.op, q.lo
+            if op == "=" then return ilvl == lo end
+            if op == ">" then return ilvl > lo end
+            if op == ">=" then return ilvl >= lo end
+            if op == "<" then return ilvl < lo end
+            if op == "<=" then return ilvl <= lo end
+            return ilvl >= lo and ilvl <= q.hi
+        end
         if curIlvl == nil then
             curIlvl = GetItemLevelAtLocation(loc, curLink) or false
         end
@@ -579,42 +590,54 @@ do
         return ilvl >= lo and ilvl <= q.hi
     end
 
-    local function TermMatches(q)
+    local function TermMatches(q, facts)
         local k = q.kw
+        local bindType, bound, isAccount
+        if facts then
+            bindType, bound, isAccount = facts.bindType, facts.bound, facts.account
+        else
+            bindType, bound, isAccount = curBindType, curBound, curIsAccount
+        end
         local match = false
         if k == "bop" then
-            match = curBindType == Enum.ItemBind.OnAcquire
+            match = bindType == Enum.ItemBind.OnAcquire
         elseif k == "boa" then
-            match = curBindType == Enum.ItemBind.ToWoWAccount
+            match = bindType == Enum.ItemBind.ToWoWAccount
         elseif k == "soulbound" then
             -- Account-bound items are bound too, but are not soulbound.
-            match = curBound and not curIsAccount
+            match = bound and not isAccount
         elseif k == "warbound" then
             -- Either account bind type (Bind to Account, Binds to Warband) once
             -- bound.
-            match = curBound and curIsAccount
-        elseif not curBound then
+            match = bound and isAccount
+        elseif not bound then
             -- BoE and WuE both mean "not bound yet". WuE reads as OnEquip from
             -- GetItemInfo, so the account check tells the two apart.
-            if curWue == nil then
+            local wue
+            if facts then
+                wue = facts.wue
+            elseif curWue == nil then
                 curWue = C_Item.IsBoundToAccountUntilEquip(loc) and true or false
+                wue = curWue
+            else
+                wue = curWue
             end
             if k == "wue" then
-                match = curWue
+                match = wue
             else
-                match = not curWue and curBindType == Enum.ItemBind.OnEquip
+                match = not wue and bindType == Enum.ItemBind.OnEquip
             end
         end
-        if match and q.op then match = ItemLevelMatches(q) end
+        if match and q.op then match = ItemLevelMatches(q, facts) end
         return match and true or false
     end
 
-    local function Eval(n)
+    local function Eval(n, facts)
         local t = n.t
-        if t == "term" then return TermMatches(n) end
-        if t == "not" then return not Eval(n.a) end
-        if t == "and" then return Eval(n.a) and Eval(n.b) end
-        return Eval(n.a) or Eval(n.b)
+        if t == "term" then return TermMatches(n, facts) end
+        if t == "not" then return not Eval(n.a, facts) end
+        if t == "and" then return Eval(n.a, facts) and Eval(n.b, facts) end
+        return Eval(n.a, facts) or Eval(n.b, facts)
     end
 
     -- The game applies a search after SetItemSearch returns and reports the
@@ -702,6 +725,12 @@ do
             match = Eval(q)
         end
         info.isFiltered = not match
+    end
+
+    function EUI_Bags.MatchSavedBindKeyword(facts)
+        local q = EUI_Bags._bindKeyword
+        if not q then return nil end
+        return Eval(q, facts or _emptyP)
     end
 end
 
