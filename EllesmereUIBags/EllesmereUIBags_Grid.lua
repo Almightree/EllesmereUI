@@ -97,7 +97,8 @@ local function GetOrCreateSlot(idx)
     -- category views (they draw no empty slots, so Blizzard's cursor split has
     -- nowhere to land there); the Stack Splitter setting extends it to the rest.
     btn:HookScript("PostClick", function(self)
-        EUI_Bags.ShowStackSplitter(self, ns.SplitTargetBags(self:GetParent():GetID()), EUI_Bags)
+        local bag = self:GetParent():GetID()
+        if bag ~= -1 then EUI_Bags.ShowStackSplitter(self, ns.SplitTargetBags(bag), EUI_Bags) end
     end)
 
     local textOverlay = ns.SkinItemButton(btn, { anchorIcon = true, cooldownFont = true })
@@ -230,7 +231,7 @@ local function RenderButton(btn, data, _, col, row, startX, currentY, _, interac
         btn._isMerged = data._mergedCount and true or nil
 
         local quality = data.info.quality or 1
-        PaintJunkState(btn, data.info, junkOn and EUI_CategoryManager:IsJunk(data.info.itemID, quality))
+        PaintJunkState(btn, data.info, data.bag ~= -1 and junkOn and EUI_CategoryManager:IsJunk(data.info.itemID, quality))
 
         -- Search misses, and a pinned item in a OneBag / MultiBag bag section
         -- (the interactive slot sections) while Dim Items in OneBag/MultiBag
@@ -479,7 +480,7 @@ end
 --  Grid layout pass. Called by RefreshInventory after the shared scan,
 --  classify, filter and scroll setup; returns the content bottom (curY).
 -------------------------------------------------------------------------------
-function ns.RenderGridView(tempItems, displayItems, emptySlots, child, columns, gridW, gridPadX, showPinned, pinnedSet)
+function ns.RenderGridView(tempItems, displayItems, emptySlots, child, columns, gridW, gridPadX, showPinned, pinnedSet, keyringSlots, keyringCapacity, keyringUsed)
     local selectedCategoryIndex, selectedGroupName = ns.GetSelection()
     junkOn = EUI_CategoryManager:IsJunkMarkerEnabled()
     compactOn = EUI_Bags.IsCompactMode() == true
@@ -1038,6 +1039,34 @@ function ns.RenderGridView(tempItems, displayItems, emptySlots, child, columns, 
             end -- compact vs grid
         end
 
+        -- Keyring follows the physical bag sections, like the Reagent Bag.
+        if keyringSlots and #keyringSlots > 0 then
+            local keyringLabel = EllesmereUI.Lf("Keyring (%d / %d)", keyringUsed or 0, keyringCapacity or 0)
+            if compactOn then
+                ns.CompactBagsSlots(keyringLabel, keyringSlots)
+            else
+                headerIdx = headerIdx + 1
+                local keyringHdr = GetOrCreateCatHeader(headerIdx)
+                keyringHdr:SetParent(child)
+                keyringHdr:ClearAllPoints()
+                keyringHdr:SetPoint("TOPLEFT", child, "TOPLEFT", startX, curY)
+                keyringHdr:SetWidth(columns * (SLOT_SIZE + SPACING))
+                keyringHdr._label:SetText(keyringLabel)
+                keyringHdr:Show()
+                curY = curY - 22
+                for i, data in ipairs(keyringSlots) do
+                    slotIdx = slotIdx + 1
+                    local btn = GetOrCreateSlot(slotIdx)
+                    if btn then
+                        btn:GetParent():SetParent(child)
+                        RenderButton(btn, data, slotIdx, (i - 1) % columns,
+                            math.floor((i - 1) / columns), startX, curY, columns, true)
+                    end
+                end
+                curY = curY - (math.ceil(#keyringSlots / columns) * (SLOT_SIZE + SPACING)) - 6
+            end
+        end
+
     elseif selectedCategoryIndex == 0 and not selectedGroupName then
         -- "All Items" view: group by category with headers
         local cats = EUI_CategoryManager:GetCategories()
@@ -1360,6 +1389,62 @@ function ns.RenderGridView(tempItems, displayItems, emptySlots, child, columns, 
                     local isUserCreated = cat.isUserCreated
                     RenderSection(cat.name, catItems, isUserCreated, cat.isPinned, cat.isRecent, ci, true)
                 end
+            end
+        end
+
+        -- Keyring remains a physical section after the category sections.
+        if keyringSlots and #keyringSlots > 0 then
+            local label = EllesmereUI.Lf("Keyring (%d / %d)", keyringUsed or 0, keyringCapacity or 0)
+            if compactOn then
+                ns.CompactBagsSlots(label, keyringSlots)
+            else
+                headerIdx = headerIdx + 1
+                local hdr = GetOrCreateCatHeader(headerIdx)
+                hdr:SetParent(child)
+                hdr:ClearAllPoints()
+                hdr:SetPoint("TOPLEFT", child, "TOPLEFT", startX, curY)
+                hdr:SetWidth(gridW)
+                hdr._label:SetText(label)
+                hdr:Show()
+                curY = curY - 22
+                for i, data in ipairs(keyringSlots) do
+                    slotIdx = slotIdx + 1
+                    local btn = GetOrCreateSlot(slotIdx)
+                    if btn then
+                        btn:GetParent():SetParent(child)
+                        RenderButton(btn, data, slotIdx, (i - 1) % columns,
+                            math.floor((i - 1) / columns), startX, curY, columns, true)
+                    end
+                end
+                curY = curY - (math.ceil(#keyringSlots / columns) * (SLOT_SIZE + SPACING)) - 6
+            end
+        end
+
+    elseif selectedCategoryIndex == -4 then
+        if keyringSlots and #keyringSlots > 0 then
+            local label = EllesmereUI.Lf("Keyring (%d / %d)", keyringUsed or 0, keyringCapacity or 0)
+            if compactOn then
+                ns.CompactBagsSlots(label, keyringSlots)
+            else
+                local hdr = GetOrCreateCatHeader(1)
+                hdr:SetParent(child)
+                hdr:ClearAllPoints()
+                hdr:SetPoint("TOPLEFT", child, "TOPLEFT", startX, curY)
+                hdr:SetWidth(gridW)
+                hdr._label:SetText(label)
+                hdr:Show()
+                curY = curY - 22
+                for i, data in ipairs(keyringSlots) do
+                    slotIdx = slotIdx + 1
+                    local btn = GetOrCreateSlot(slotIdx)
+                    if btn then
+                        btn:GetParent():SetParent(child)
+                        local col = (i - 1) % columns
+                        local row = math.floor((i - 1) / columns)
+                        RenderButton(btn, data, slotIdx, col, row, startX, curY, columns, true)
+                    end
+                end
+                curY = curY - (math.ceil(#keyringSlots / columns) * (SLOT_SIZE + SPACING)) - 6
             end
         end
     else

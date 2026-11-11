@@ -171,7 +171,7 @@ local function CreateHeader()
     -- The sort button is clickable only while no sort runs, and where it
     -- moves items only out of combat.
     local function ApplySortEnabled()
-        local on = not sortLocked and not (InCombatLockdown() and SortMovesItems())
+        local on = selectedCategoryIndex ~= -4 and not sortLocked and not (InCombatLockdown() and SortMovesItems())
         sort:EnableMouse(on)
         sort.icon:SetAlpha(on and 0.9 or 0.2)
     end
@@ -647,6 +647,7 @@ local function CreateHeader()
     end
 
     sort:SetScript("OnClick", function()
+        if selectedCategoryIndex == -4 then return end
         if sortLocked or (InCombatLockdown() and SortMovesItems()) then return end
         if selectedCategoryIndex == -1 then
             if EllesmereUIDB and EllesmereUIDB.bagSortWarningDismissed then

@@ -41,7 +41,10 @@ local _sidebarBtns = {}  -- array of sidebar button frames
 -- sidebar hides and its expand arrow sits left of the window title.
 -- fixed views up top: all items, onebag, multibag, plus bank when offline bank is on
 local function FixedViewCount()
-    return (ns.Offline and ns.Offline.Enabled()) and 4 or 3
+    local count = 3
+    if ns.KeyringBagID and ns.KeyringBagID() then count = count + 1 end
+    if ns.Offline and ns.Offline.Enabled() then count = count + 1 end
+    return count
 end
 
 local function GetSidebarWidth()
@@ -1093,7 +1096,7 @@ local function ShowCategoryContextMenu(btn, catIdx, isGroupHeader, isGroupMember
     end)
 end
 
-local function BuildSidebarButtons(categoryCounts, totalCount)
+local function BuildSidebarButtons(categoryCounts, totalCount, showKeyring)
     local sidebar = EUI_Bags._sidebar
     if not sidebar then return end
     local collapsed = BP().bagSidebarCollapsed
@@ -1136,8 +1139,14 @@ local function BuildSidebarButtons(categoryCounts, totalCount)
     for _, _k in ipairs({ "all", "onebag", "multibag" }) do
         if _k ~= _dbt then displayList[#displayList + 1] = _fixedViews[_k] end
     end
+    if showKeyring then
+        displayList[#displayList + 1] = {
+            catIdx = -4, name = EllesmereUI.L("Keyring"),
+            icon = "UI-HUD-ActionBar-Keyring-Small", isAtlas = true,
+        }
+    end
     -- bank: the offline bank view
-    if FixedViewCount() == 4 then
+    if ns.Offline and ns.Offline.Enabled() then
         displayList[#displayList + 1] = { catIdx = -3, name = EllesmereUI.L("Bank"), icon = 133784 }
     end
 

@@ -1307,6 +1307,19 @@ initFrame:SetScript("OnEvent", function(self)
                   end }
             ); y = y - h
 
+            if EllesmereUI.IS_FOREVER then
+                _, h = W:DualRow(parent, y,
+                    { type="toggle", text="Show Keyring",
+                      tooltip="Add a Keyring view to the sidebar. It shows only keyring slots when selected.",
+                      getValue=function() return db.profile.bagShowKeyring == true end,
+                      setValue=function(v)
+                          db.profile.bagShowKeyring = v and true or false
+                          if _G.EUI_Bags and _G.EUI_Bags.RefreshInventory then _G.EUI_Bags:RefreshInventory() end
+                      end },
+                    EllesmereUI.BlankRowCfg()
+                ); y = y - h
+            end
+
             _, h = W:Spacer(parent, y, 20); y = y - h
             return math.abs(y)
             end) -- end pcall

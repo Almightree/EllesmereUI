@@ -19,6 +19,7 @@ local BAGS_DEFAULTS = {
         bagCountFontSize      = 11,
         bagSlotCountFormat    = "used_total",
         bagSeparateReagentSlots = false,
+        bagShowKeyring        = false,
         itemlevelFontSize     = 12,
         showItemlevelInBags   = true,
         showUpgradeIndicator  = true,

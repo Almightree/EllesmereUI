@@ -205,7 +205,7 @@ local function StartAddon()
         local loc = C_Cursor.GetCursorItem()
         if loc and loc:IsBagAndSlot() then
             local bag = loc:GetBagAndSlot()
-            if bag >= 0 and bag <= 5 then return false end
+            if bag == -1 or (bag >= 0 and bag <= 5) then return false end
         end
         return true
     end

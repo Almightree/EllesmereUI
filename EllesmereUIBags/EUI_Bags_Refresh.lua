@@ -34,6 +34,7 @@ local SetInsetBorderColor, GetOrCreateBagSlot = I.SetInsetBorderColor, I.GetOrCr
 local GetOrCreateReagentSlot, PinnedItems = I.GetOrCreateReagentSlot, I.PinnedItems
 local BuildSidebarButtons, GetSidebarWidth = I.BuildSidebarButtons, I.GetSidebarWidth
 local SetGearCatSet, SetPaintedPanelOpen = I.SetGearCatSet, I.SetPaintedPanelOpen
+local SetSelectedCategoryIndex, SetSelectedGroupName = I.SetSelectedCategoryIndex, I.SetSelectedGroupName
 
 -- Shared state: one copy per file. A write goes through the Set<Name>
 -- function of ns._bagsInternals, which hands the value to every copy.
@@ -464,9 +465,9 @@ local function FormatSlots(used, total, reagent, format)
     return EllesmereUI.Lf("%d / %d Slots", used, total)
 end
 
-local function FinishRefresh(curY, gridContentW, sidebarW, regularUsed, regularTotal, reagentUsed, reagentTotal, totalCount)
+local function FinishRefresh(curY, gridContentW, sidebarW, regularUsed, regularTotal, reagentUsed, reagentTotal, totalCount, keyringUsed, keyringCapacity)
     -- In combat the sort button's lock depends on the view just painted.
-    if InCombatLockdown() and EUI_Bags._applySortEnabled then EUI_Bags._applySortEnabled() end
+    if EUI_Bags._applySortEnabled then EUI_Bags._applySortEnabled() end
     local sf, child = EUI_Bags._scrollFrame, EUI_Bags._scrollChild
     local headerH = EUI_Bags.Header:GetHeight()
     local contentH = math.abs(curY) + 10
@@ -536,7 +537,9 @@ local function FinishRefresh(curY, gridContentW, sidebarW, regularUsed, regularT
         local format = BP().bagSlotCountFormat
         local separate = not EllesmereUI.IS_FOREVER and BP().bagSeparateReagentSlots == true
         local countText
-        if not separate and format ~= "free" and format ~= "free_total"
+        if selectedCategoryIndex == -4 then
+            countText = FormatSlots(keyringUsed or 0, keyringCapacity or 0, false, format)
+        elseif not separate and format ~= "free" and format ~= "free_total"
             and selectedCategoryIndex ~= 0 and selectedCategoryIndex ~= -1 and selectedCategoryIndex ~= -2 then
             countText = EllesmereUI.Lf("%d Items", totalCount)
         elseif separate then
@@ -585,6 +588,7 @@ function EUI_Bags:RefreshInventory()
     ReleaseAllSlotTables()
     local tempItems = {}
     local emptySlots = {}
+    local keyringSlots, keyringCapacity, keyringUsed
     local regularUsed, regularTotal = 0, 0
     local reagentUsed, reagentTotal = 0, 0
     local special = ns.SpecialBags()
@@ -704,7 +708,8 @@ function EUI_Bags:RefreshInventory()
     TakeBagSnapshot(tempItems)
 
     -- Show blocked-swap tooltip in category/group views (not All Items, not OneBag)
-    if swapDetected and not isAllItems and selectedCategoryIndex ~= -1 and selectedCategoryIndex ~= -2 then
+    if swapDetected and not isAllItems and selectedCategoryIndex ~= -1 and selectedCategoryIndex ~= -2
+        and selectedCategoryIndex ~= -4 then
         if EUI.ShowWidgetTooltip then
             -- Controller cursor: the pointer may be hidden, so anchor to the window.
             EUI.ShowWidgetTooltip(EUI_Bags, "Positions can only be changed\nin the All Items, OneBag, or MultiBag views", (not EUI.PadInUse()) and { anchor = "cursor" } or nil)
@@ -775,8 +780,37 @@ function EUI_Bags:RefreshInventory()
     -- an alt or the offline bank view: its panel takes the item area
     local offlineUp = altView or (ns.Offline and ns.Offline.Enabled() and selectedCategoryIndex == ns.OFFLINE_BANK_VIEW)
 
+    local keyringBag = not offlineUp and ns.KeyringBagID and ns.KeyringBagID()
+    if selectedCategoryIndex == -4 and (not keyringBag or selectedGroupName) then
+        SetSelectedGroupName(nil)
+        SetSelectedCategoryIndex(0)
+        selectedGroupName, selectedCategoryIndex = nil, 0
+    end
+    if keyringBag then
+        keyringCapacity = C_Container.GetContainerNumSlots(keyringBag) or 0
+        if keyringCapacity > 0 then
+            keyringSlots = {}
+            keyringUsed = 0
+            local searching = EUI_Bags._appliedSearch and EUI_Bags._appliedSearch ~= ""
+            for slot = 1, keyringCapacity do
+                local info = C_Container.GetContainerItemInfo(keyringBag, slot)
+                if info then
+                    keyringUsed = keyringUsed + 1
+                    if not info.isFiltered then
+                        local d = { bag = keyringBag, slot = slot, info = info,
+                            itemLink = C_Container.GetContainerItemLink(keyringBag, slot) }
+                        EUI_Bags.ApplyBindKeyword(info, keyringBag, slot)
+                        if not info.isFiltered then keyringSlots[#keyringSlots + 1] = d end
+                    end
+                elseif not searching then
+                    keyringSlots[#keyringSlots + 1] = { bag = keyringBag, slot = slot }
+                end
+            end
+        end
+    end
+
     -- 3. Update sidebar
-    BuildSidebarButtons(categoryCounts, totalCount)
+    BuildSidebarButtons(categoryCounts, totalCount, keyringBag ~= nil)
 
     -- Cache counts for partial refresh
     _lastCatCounts = categoryCounts
@@ -815,6 +849,8 @@ function EUI_Bags:RefreshInventory()
         local show = true
         if offlineUp then
             show = false  -- the offline panel covers these
+        elseif selectedCategoryIndex == -4 then
+            show = false
         elseif isRecentView then
             show = data.info and data.info.itemID and EUI_Bags._recentItems and EUI_Bags._recentItems[data.info.itemID]
         elseif isPinnedView then
@@ -908,17 +944,32 @@ function EUI_Bags:RefreshInventory()
                 if hasSetChild then S = S + 1 end
             end
             if S < 1 then S = 1 end
+            if keyringSlots and #keyringSlots > 0 then
+                n = n + #keyringSlots
+                S = S + 1
+            end
         elseif selectedCategoryIndex == -2 then
             -- MultiBag: one section per bag that has slots (+ reagent)
             n = #tempItems + #emptySlots
             S = 0
             for bag = 0, 5 do if C_Container.GetContainerNumSlots(bag) > 0 then S = S + 1 end end
+            if keyringSlots and #keyringSlots > 0 then
+                n = n + #keyringSlots
+                S = S + 1
+            end
             if S < 1 then S = 1 end
+        elseif selectedCategoryIndex == -4 then
+            n = keyringSlots and #keyringSlots or 1
+            S = 1
         else
             -- OneBag / group view: a few sections (pinned/recent/main/reagent,
             -- plus OneBag's special bags)
             n = #tempItems + #emptySlots
             S = 3 + (selectedCategoryIndex == -1 and spBags or 0)
+            if selectedCategoryIndex == -1 and keyringSlots and #keyringSlots > 0 then
+                n = n + #keyringSlots
+                S = S + 1
+            end
         end
         n = math.max(n, 1)
         -- Compact: no header rows; each block's gap and part-filled last row
@@ -975,7 +1026,7 @@ function EUI_Bags:RefreshInventory()
 
     -- no live items laid out under the offline panel (select modes would hit them)
     local liveItems, liveEmpty = tempItems, emptySlots
-    if offlineUp then liveItems, liveEmpty = {}, {} end
+    if offlineUp then liveItems, liveEmpty, keyringSlots = {}, {}, nil end
 
     -- List display (latched per session): rows replace the grid; the column
     -- header bar takes the top of the scroll area
@@ -986,7 +1037,7 @@ function EUI_Bags:RefreshInventory()
             startX = BP().bagListGapL or 15,
             leftX = sidebarW, topY = -(headerH + 1),
             allItems = isAllItems,
-            slotView = (selectedCategoryIndex == -1 and "one") or (selectedCategoryIndex == -2 and "multi") or nil,
+            slotView = (selectedCategoryIndex == -4 and "keyring") or (selectedCategoryIndex == -1 and "one") or (selectedCategoryIndex == -2 and "multi") or nil,
             -- Same rule as the grid's Recent Items section
             recent = (showRecent and (isAllItems or (selectedCategoryIndex < 0 and BP().bagRecentInOneBag == true)))
                 and EUI_Bags._recentItems or nil,
@@ -994,16 +1045,21 @@ function EUI_Bags:RefreshInventory()
             recentOnly = isRecentView or nil,
             -- Empty rows only when nothing is search-filtered out
             emptySlots = (#displayItems == #liveItems) and liveEmpty or nil,
+            keyringSlots = keyringSlots,
+            showKeyring = selectedCategoryIndex == -4 or selectedCategoryIndex == -1
+                or selectedCategoryIndex == -2 or isAllItems,
+            keyringCapacity = keyringCapacity,
+            keyringUsed = keyringUsed,
             -- Same rule as the grid's Pinned Items section
             pinned = (showPinned and (isAllItems or (selectedCategoryIndex < 0 and BP().bagPinnedInOneBag ~= false)))
                 and pinnedSet or nil,
         })
         sf:SetPoint("TOPLEFT", EUI_Bags, "TOPLEFT", sidebarW, -(headerH + 1 + colHdrH))
-        FinishRefresh(-(listH + colHdrH), gridW + gridPadX * 2 + scrollbarPad + 2, sidebarW, regularUsed, regularTotal, reagentUsed, reagentTotal, totalCount)
+        FinishRefresh(-(listH + colHdrH), gridW + gridPadX * 2 + scrollbarPad + 2, sidebarW, regularUsed, regularTotal, reagentUsed, reagentTotal, totalCount, keyringUsed, keyringCapacity)
         return
     end
 
-    local curY = ns.RenderGridView(liveItems, displayItems, liveEmpty, child, columns, gridW, gridPadX, showPinned, pinnedSet)
+    local curY = ns.RenderGridView(liveItems, displayItems, liveEmpty, child, columns, gridW, gridPadX, showPinned, pinnedSet, keyringSlots, keyringCapacity, keyringUsed)
 
     -- Compact: the window drops the remainder its widest band leaves short of
     -- the columns, less than a cell (ns.CompactBagsContentW). While open it
@@ -1024,7 +1080,7 @@ function EUI_Bags:RefreshInventory()
         if child then child:SetWidth(gridW + gridPadX * 2 + scrollbarPad) end
     end
 
-    FinishRefresh(curY, gridW + gridPadX * 2 + scrollbarPad + 2, sidebarW, regularUsed, regularTotal, reagentUsed, reagentTotal, totalCount)
+    FinishRefresh(curY, gridW + gridPadX * 2 + scrollbarPad + 2, sidebarW, regularUsed, regularTotal, reagentUsed, reagentTotal, totalCount, keyringUsed, keyringCapacity)
 end
 
 -------------------------------------------------------------------------------

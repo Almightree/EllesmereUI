@@ -145,6 +145,14 @@ local EUI = EllesmereUI
 local _emptyP = {}
 local function BP() return (EUI._bagsDB and EUI._bagsDB.profile) or _emptyP end
 
+function ns.KeyringBagID()
+    if EUI.IS_FOREVER ~= true or BP().bagShowKeyring ~= true then return nil end
+    local bagID = Enum.BagIndex and Enum.BagIndex.Keyring
+    if bagID == nil or not C_ActionBar or not C_ActionBar.ShouldShowKeyring
+        or not C_ActionBar.ShouldShowKeyring() then return nil end
+    return bagID
+end
+
 -- Uninstall EUI: Sort to Bottom flips Blizzard's own sort direction, so the
 -- player's is handed back, as turning the option off does.
 EUI.OnUninstall(function()

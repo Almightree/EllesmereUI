@@ -79,6 +79,7 @@ end)
 local function SlotMiddleClick(self, button)
     if button ~= "MiddleButton" then return end
     local bagID = self:GetParent():GetID()
+    if bagID == -1 then return end
     local slotID = self:GetID()
     if not bagID or not slotID or slotID == 0 then return end
     local info = C_Container.GetContainerItemInfo(bagID, slotID)
@@ -139,6 +140,7 @@ function ns.BankRoutePreClick(self, button)
     local targetBag = bank:GetSelectedTabBagID()
     if not targetBag then return end
     local srcBag = self:GetParent():GetID()
+    if srcBag == -1 then return end
     local srcSlot = self:GetID()
     if not srcBag or not srcSlot or srcSlot == 0 then return end
     local info = C_Container.GetContainerItemInfo(srcBag, srcSlot)
@@ -256,6 +258,8 @@ function EUI_Bags:WarmSlotPool(msBudget)
     for bag = 0, 5 do
         total = total + (C_Container.GetContainerNumSlots(bag) or 0)
     end
+    local keyringBag = ns.KeyringBagID and ns.KeyringBagID()
+    if keyringBag then total = total + (C_Container.GetContainerNumSlots(keyringBag) or 0) end
     -- Only the pool for the latched display mode is built; mode unknown
     -- (profile not loaded yet) builds neither and retries at combat end.
     local listMode = EUI_Bags.IsListMode()
@@ -741,6 +745,7 @@ function EUI_Bags.UnregisterItemOverlayIcon(name)
 end
 
 function EUI_Bags.RunItemOverlays(btn, data)
+    if data.bag == -1 then return end
     local fns = EUI_Bags.itemOverlayIcons
     if next(fns) == nil then return end
     for _, fn in pairs(fns) do

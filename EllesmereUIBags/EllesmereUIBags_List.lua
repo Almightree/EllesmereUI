@@ -247,7 +247,8 @@ local function GetOrCreateRow(idx)
     btn:HookScript("PreClick", ns.BankRoutePreClick)
     btn:HookScript("OnClick", ns.BankRouteOnClick)
     btn:HookScript("PostClick", function(self)
-        EUI_Bags.ShowStackSplitter(self, ns.SplitTargetBags(self:GetParent():GetID()), EUI_Bags)
+        local bag = self:GetParent():GetID()
+        if bag ~= -1 then EUI_Bags.ShowStackSplitter(self, ns.SplitTargetBags(bag), EUI_Bags) end
     end)
     _rows[idx] = btn
     return btn
@@ -752,7 +753,7 @@ local function RenderRow(btn, data, cols, rowW, x, y, stripe, dim)
             local z = round and ROUND_ZOOM or (BP().bagItemIconZoom or 0.08)
             icon:SetTexCoord(z, 1 - z, z, 1 - z)
             -- Junk Item Visuals' Desaturate greys grey items and Junk Marker junk
-            icon:SetDesaturated(info.isLocked or (BP().bagDesaturateJunkItems == true
+            icon:SetDesaturated(info.isLocked or (data.bag ~= -1 and BP().bagDesaturateJunkItems == true
                 and (q == 0 or EUI_CategoryManager:IsJunk(info.itemID, q))) or false)
             if EUI._BagsItemUnusable(data.bag, data.slot, data.itemLink, info.itemID) then
                 icon:SetVertexColor(1, 0.1, 0.1)
@@ -1063,6 +1064,36 @@ function ns.RenderListView(items, opts)
                     if d.info then
                         RenderRow(btn, d, cols, rowW, x, y, i % 2 == 0,
                             d._pinDim and b.key ~= "pinned" and b.key ~= "recent")
+                    else
+                        RenderEmptyRow(btn, cols, d, rowW, x, y, i % 2 == 0)
+                    end
+                    y = y - rowH
+                end
+            end
+        end
+        y = y - 6
+    end
+    if opts.showKeyring and opts.keyringSlots and #opts.keyringSlots > 0 then
+        local label = L("Keyring")
+        local count = "(" .. (opts.keyringUsed or 0) .. " / " .. (opts.keyringCapacity or 0) .. ")"
+        local h, collapsed = PlaceSection("keyring", label, count, x, y, rowW, false)
+        y = y - h
+        if not collapsed then
+            for i, d in ipairs(opts.keyringSlots) do
+                local btn = GetOrCreateRow(_rowsUsed + 1)
+                if btn then
+                    _rowsUsed = _rowsUsed + 1
+                    btn:GetParent():SetParent(child)
+                    if d.info then
+                        if d.itemLink then
+                            StampItem(d)
+                        else
+                            d._lvName = d.info.itemName or ""
+                            d._lvQuality = d.info.quality or 1
+                            d._lvIlvl, d._lvReq, d._lvCount, d._lvSell = 0, 0, d.info.stackCount or 1, 0
+                            d._lvType, d._lvBind, d._lvTrack = "", "", ""
+                        end
+                        RenderRow(btn, d, cols, rowW, x, y, i % 2 == 0)
                     else
                         RenderEmptyRow(btn, cols, d, rowW, x, y, i % 2 == 0)
                     end

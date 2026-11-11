@@ -258,7 +258,7 @@ function ns.SelectSlotUnderCursor()
     local pool = itemSlots
     for _ = 1, 2 do
         for _, btn in pairs(pool) do
-            if btn:IsShown() and btn:GetParent():IsShown() then
+            if btn:IsShown() and btn:GetParent():IsShown() and btn:GetParent():GetID() ~= -1 then
                 local es = btn:GetEffectiveScale()
                 local cx, cy = rawCx / es, rawCy / es
                 local l, b, w, h = btn:GetRect()
@@ -281,7 +281,7 @@ function ns.RepaintJunkItem(itemID)
         for _, btn in pairs(pool) do
             if btn:IsShown() and btn:GetParent():IsShown() then
                 local bag, slot = btn:GetParent():GetID(), btn:GetID()
-                if C_Container.GetContainerItemID(bag, slot) == itemID then
+                if bag ~= -1 and C_Container.GetContainerItemID(bag, slot) == itemID then
                     local info = C_Container.GetContainerItemInfo(bag, slot)
                     if info then
                         if btn._lvIcon then ns.ListPaintJunk(btn, info) else ns.GridPaintJunk(btn, info) end
